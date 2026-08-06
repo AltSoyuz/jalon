@@ -99,6 +99,44 @@ Conflicts are ordinary git conflicts in a markdown file, and the append only
 sections were chosen so that two people appending to the same Log conflict on
 adjacent lines rather than on structure.
 
+### Agreeing on a task before doing it
+
+Several people often need to settle what a task actually is before anyone
+writes code. jalon builds nothing for that, because git already has the
+primitive: **open a pull request that contains only the task file.**
+
+```sh
+git checkout -b task/rework-the-auth-store
+jalon new -status proposed "rework the auth store"
+$EDITOR .tasks/260807-rework-the-auth-store.md   # write Context, and the open questions
+git commit -am "[260807-rework] propose reworking the auth store"
+gh pr create --title "Task: rework the auth store" --body "Proposal, not code yet."
+```
+
+Reviewers get everything this tool deliberately does not build: the forge
+renders the markdown, comments thread inline on the Context and on each
+Decision, mentions notify, approvals record consent, and it all works from a
+phone. Merging **is** the agreement.
+
+`status: proposed` needs no support: any status is accepted, `jalon list
+-status proposed` shows what is awaiting agreement, and the rendered index
+gives it its own section. Flip it to `doing` when the work starts.
+
+What lands in the file afterwards is the **Decisions** lines, distilled by hand
+from the thread. That distillation is the whole point and no tool can do it: a
+fifty comment discussion becomes three lines that an agent reads in six months
+without reopening the pull request. The thread is disposable, the arbitration
+is permanent.
+
+This is also why nothing pushes task state back to the forge. Discussion lives
+where discussion is good, the settled outcome lives in the file, and neither
+copies the other.
+
+One trap worth knowing: a task under discussion in a pull request while someone
+appends to the same file on the main branch produces an ordinary git conflict.
+The append only sections keep it to adjacent lines rather than structure, but it
+happens, and rebasing the proposal branch is the answer.
+
 ## Where GitHub fits, and where it does not
 
 **There is no synchronization, on purpose.** Two writable stores would need a
