@@ -75,11 +75,12 @@ Bounded, rewritten at compaction, always current.
 
 The full history is in git, for free. That is what makes truncation safe.
 
-## The six verbs
+## The seven verbs
 
 ```sh
 jalon new "migration auth"                       # creates the file, prints its path
 jalon new -issue 42                              # or seeds it from a GitHub issue
+jalon list -status doing                         # the cheap half of orientation
 jalon append 260806 "blocked on the refresh path"
 jalon append -decision 260806 "cookie sessions over JWT"
 jalon digest 260806                              # the whole context, one block
@@ -92,9 +93,15 @@ Every command takes an id or its unique prefix, and refuses to guess when a
 prefix matches several tasks. Flags come before the arguments; a flag placed
 after them is refused rather than silently read as text.
 
-### digest
+### list and digest
 
-The verb for the agent. It writes, in this order: the front matter, `Context`,
+Orientation is two steps, and the sizes are why. `list` costs about fifteen
+tokens per task and says what exists; its stdout is one line per task and
+nothing else, so a harness hook is `jalon list -status doing` with no glue
+around it. `digest` costs a couple of thousand tokens and says everything about
+one task.
+
+`digest` is the verb for the agent. It writes, in this order: the front matter, `Context`,
 `Decisions`, the last N `Log` entries, the content of each linked file, the
 commits carrying the id, the open pull requests, and the issue thread when
 `issue:` is set. Every cap it applies is stated in the output, never silent.

@@ -9,7 +9,7 @@ file first task manager. Six source files, split by group of verbs.
 
 | File | Holds |
 |---|---|
-| `main.go` | Command dispatch, the `new`, `append`, `close` and `compact` verbs, directory and id resolution, the git wrapper. |
+| `main.go` | Command dispatch, the `new`, `list`, `append`, `close` and `compact` verbs, directory and id resolution, the git wrapper. |
 | `task.go` | The file format: front matter, sections, entries, ids, creation. |
 | `digest.go` | The `digest` verb: assembling one block from the task, its links, git and the forge. |
 | `render.go` | The markdown subset, the HTML templates, the CSS, the `render` verb. |
@@ -39,9 +39,10 @@ toolchain it was built with.
 Track your work here with jalon, not beside it. Anything that will produce a
 commit starts with a task and ends inside it.
 
-1. `jalon digest <id>` before touching anything, even when you think you already
-   know the task. If that read does not orient you, the tool has failed at its
-   only job, and that is the most valuable bug report this project can get.
+1. `jalon list` to see what exists, then `jalon digest <id>` before touching
+   anything, even when you think you already know the task. If that read does
+   not orient you, the tool has failed at its only job, and that is the most
+   valuable bug report this project can get.
 2. `jalon new "<title>"` when no task covers the work. One coherent deliverable,
    one task.
 3. `jalon append -decision <id> "..."` **when the arbitration happens**, not

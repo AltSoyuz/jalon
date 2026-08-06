@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formula from those checksums.
 - `make dogfood` runs the freshly built binary against this repository's own
   `.tasks/`, and CI runs it on every pull request.
+- `jalon list` prints one line per task, with `-status` to filter. It is the
+  cheap half of orientation and the zero argument command a harness session
+  start hook needs: stdout stays one line per task so no shell glue is needed
+  around it.
 - Opt in self observability: with `JALON_METRICS` set to a path, every
   invocation appends one JSON line with the verb, task, size, duration,
   degraded state and error. Unset, nothing is written. No aggregation verb

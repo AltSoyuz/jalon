@@ -30,6 +30,7 @@ usage: jalon <command> [flags] [args]
 commands:
   new <title>          create a task file, id YYMMDD-slug (-issue N seeds it
                        from a GitHub issue)
+  list                 one line per task: id, status, title
   append <id> <text>   append one entry to the Log, or to Decisions
   digest <id>          print the whole task context as one block
   compact <id>         truncate the Log, report the token budget
@@ -72,6 +73,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		err = cmdDigest(rest, stdout, stderr, m)
 	case "compact":
 		err = cmdCompact(rest, stdout, stderr, m)
+	case "list":
+		err = cmdList(rest, stdout, stderr, m)
 	case "render":
 		err = cmdRender(rest, stdout, stderr, m)
 	case "close":
@@ -450,6 +453,59 @@ func cmdDigest(args []string, stdout, stderr io.Writer, m *metric) error {
 		withPRs:      !*offline,
 		withIssue:    !*offline,
 	})
+}
+
+// cmdList is the cheap half of orientation: about fifteen tokens per task to
+// see the menu, against two thousand to digest one. It is what a session start
+// hook runs, so its stdout is one line per task and nothing else.
+func cmdList(args []string, stdout, stderr io.Writer, m *metric) error {
+	fs := newFlagSet("list", stderr)
+	dir := dirFlag(fs)
+	status := fs.String("status", "", "keep only this status")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkFlagsAfterArgs(fs); err != nil {
+		return err
+	}
+	d, err := resolveDir(*dir)
+	if err != nil {
+		return err
+	}
+	tasks, err := LoadTasks(d)
+	if err != nil {
+		return err
+	}
+
+	kept := tasks[:0]
+	width := 0
+	for _, t := range tasks {
+		if *status != "" && t.Status() != *status {
+			continue
+		}
+		kept = append(kept, t)
+		if len(t.ID) > width {
+			width = len(t.ID)
+		}
+	}
+	m.Tasks = len(kept)
+	if len(kept) == 0 {
+		// An empty list is an answer, not a failure: stdout stays empty for the
+		// caller, the explanation goes to stderr for the human.
+		if *status != "" {
+			fmt.Fprintf(stderr, "jalon: no task with status %q in %s\n", *status, d)
+		} else {
+			fmt.Fprintf(stderr, "jalon: no task in %s\n", d)
+		}
+		return nil
+	}
+
+	// Newest first, like the rendered index: ids sort chronologically.
+	for i := len(kept) - 1; i >= 0; i-- {
+		t := kept[i]
+		fmt.Fprintf(stdout, "%-*s  %-6s  %s\n", width, t.ID, t.Status(), t.Title())
+	}
+	return nil
 }
 
 func cmdRender(args []string, stdout, stderr io.Writer, m *metric) error {

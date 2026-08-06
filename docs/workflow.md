@@ -18,7 +18,46 @@ holding only `.tasks/` changes defeats the point: the link is the commit.
 
 ## With an agent
 
-One command, one block, no exploration:
+Orientation is two steps, and the sizes are the reason. `jalon list` costs about
+fifteen tokens per task and tells you what exists. `jalon digest` costs a couple
+of thousand and tells you everything about one task. Cheap menu first, expensive
+detail on the one that matters.
+
+```sh
+jalon list -status doing
+jalon digest 260806
+```
+
+Injecting full digests for every task at the start of a session would be exactly
+the waste this tool exists to remove.
+
+### Wiring it into a harness
+
+The conventions above are prose, and prose loses against an agent that believes
+it already knows the task. The author of this tool skipped `digest` on his own
+repository within a day of writing the rule down. What runs whatever the agent
+decides is a harness hook, and that is where enforcement belongs. jalon enforces
+nothing: a task manager that refuses a command because you did not orient first
+is a task manager people uninstall.
+
+The recipe is one command whose stdout is meant to be injected into the model's
+context at the start of a session:
+
+```sh
+jalon list -status doing
+```
+
+That is deliberately not shipped as a configuration file for one particular
+agent runtime. Every harness can run a command and inject its output, and the
+shape above is all any of them needs. Wire it wherever your harness puts session
+start hooks.
+
+Nothing is needed beyond that command, which is the point: before `list`
+existed, such a hook had to grep for `status: doing`, extract an id and call
+`digest`, and that glue would have lived in every user's configuration and
+broken the day the format moved.
+
+The full detail on one task stays one command away:
 
 ```sh
 jalon digest 260806
