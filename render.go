@@ -149,6 +149,32 @@ type commit struct {
 	Subject string
 }
 
+// A commit body can carry tags for the other tasks it touches, which is how one
+// commit references several without cramming them all into its subject. So the
+// whole message is searched and only the subject is displayed. Records are
+// separated by \x1e because %B contains newlines.
+const gitLogFormat = "--format=%h%x1f%ad%x1f%s%x1f%B%x1e"
+
+type logEntry struct {
+	commit  commit
+	message string
+}
+
+func parseLog(out string) []logEntry {
+	var entries []logEntry
+	for _, record := range strings.Split(out, "\x1e") {
+		fields := strings.SplitN(strings.TrimLeft(record, "\n"), "\x1f", 4)
+		if len(fields) != 4 || fields[0] == "" {
+			continue
+		}
+		entries = append(entries, logEntry{
+			commit:  commit{Hash: fields[0], Date: fields[1], Subject: fields[2]},
+			message: fields[3],
+		})
+	}
+	return entries
+}
+
 type pageData struct {
 	ID      string
 	Title   string
@@ -274,44 +300,44 @@ func commitsByTask(warn io.Writer, root string, tasks []*Task) map[string][]comm
 		fmt.Fprintf(warn, "jalon: %s is not a git repository: pages will have no commits\n", root)
 		return byID
 	}
-	out, err := gitOutput(root, "log", "--format=%h%x1f%ad%x1f%s", "--date=short")
+	out, err := gitOutput(root, "log", gitLogFormat, "--date=short")
 	if err != nil {
 		fmt.Fprintf(warn, "jalon: git log failed: %v\n", err)
 		return byID
 	}
 
-	byToken := make(map[string][]commit)
-	for _, line := range strings.Split(out, "\n") {
-		parts := strings.Split(line, "\x1f")
-		if len(parts) != 3 {
-			continue
-		}
-		c := commit{Hash: parts[0], Date: parts[1], Subject: parts[2]}
-		for _, m := range commitTokenRe.FindAllStringSubmatch(c.Subject, -1) {
-			byToken[m[1]] = append(byToken[m[1]], c)
+	// git log is newest first, and that order is kept.
+	log := parseLog(out)
+	tokens := make(map[string]bool)
+	for _, e := range log {
+		for _, m := range commitTokenRe.FindAllStringSubmatch(e.message, -1) {
+			tokens[m[1]] = true
 		}
 	}
 
-	sharedPrefix := make(map[string]int)
-	for _, t := range tasks {
-		sharedPrefix[idPrefix(t.ID)]++
+	// One rule: a tag matches a task when it is a prefix of its id. A tag that
+	// is a prefix of several tasks is listed on all of them, which is a
+	// reporting problem worth naming out loud.
+	for token := range tokens {
+		var matched []string
+		for _, t := range tasks {
+			if strings.HasPrefix(t.ID, token) {
+				matched = append(matched, t.ID)
+			}
+		}
+		if len(matched) > 1 {
+			sort.Strings(matched)
+			fmt.Fprintf(warn, "jalon: [%s] is a prefix of %d tasks (%s): those commits are listed on all of them, use a longer tag\n",
+				token, len(matched), strings.Join(matched, ", "))
+		}
 	}
-	warned := make(map[string]bool)
+
 	for _, t := range tasks {
-		prefix := idPrefix(t.ID)
-		byID[t.ID] = append(byID[t.ID], byToken[t.ID]...)
-		if prefix == t.ID {
-			continue
+		for _, e := range log {
+			if tagMatches(e.message, t.ID) {
+				byID[t.ID] = append(byID[t.ID], e.commit)
+			}
 		}
-		if len(byToken[prefix]) == 0 {
-			continue
-		}
-		if sharedPrefix[prefix] > 1 && !warned[prefix] {
-			warned[prefix] = true
-			fmt.Fprintf(warn, "jalon: %d tasks share the prefix %s: commits tagged [%s] are listed on all of them, tag them with the full id\n",
-				sharedPrefix[prefix], prefix, prefix)
-		}
-		byID[t.ID] = append(byID[t.ID], byToken[prefix]...)
 	}
 	return byID
 }

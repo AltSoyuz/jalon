@@ -58,13 +58,15 @@ func digest(stdout, stderr io.Writer, root string, t *Task, m *metric, opt diges
 		gitState = "absent"
 		fmt.Fprintf(stderr, "jalon: %s is not a git repository: no commits, no pull requests\n", root)
 	} else {
-		out, err := gitOutput(root, "log", "--fixed-strings", "--grep", "["+t.ID+"]",
-			"--grep", "["+idPrefix(t.ID)+"]", "--format=%h %ad %s", "--date=short")
+		// The date part bounds the search to one day's family of tags; the
+		// prefix test then happens in Go on those few lines.
+		out, err := gitOutput(root, "log", "--grep", `\[`+idPrefix(t.ID),
+			gitLogFormat, "--date=short")
 		if err != nil {
 			fmt.Fprintf(stderr, "jalon: git log failed: %v\n", err)
-		} else if out != "" {
-			nCommits = strings.Count(out, "\n") + 1
-			fmt.Fprintf(&b, "\n## Commits\n\n%s\n", out)
+		} else if lines := matchingCommits(out, t.ID); len(lines) > 0 {
+			nCommits = len(lines)
+			fmt.Fprintf(&b, "\n## Commits\n\n%s\n", strings.Join(lines, "\n"))
 		}
 		if opt.withPRs {
 			ghState = "ok"
@@ -101,8 +103,31 @@ func writeSection(w io.Writer, heading, content string) {
 	fmt.Fprintf(w, "\n## %s\n\n%s\n", heading, content)
 }
 
-// idPrefix is the YYMMDD part, so that a commit tagged with the short form
-// [260806] is found as well as one tagged with the full id.
+// matchingCommits keeps the log entries carrying a tag that is a prefix of the
+// id, and formats them for display.
+func matchingCommits(log, id string) []string {
+	var out []string
+	for _, e := range parseLog(log) {
+		if tagMatches(e.message, id) {
+			out = append(out, e.commit.Hash+" "+e.commit.Date+" "+e.commit.Subject)
+		}
+	}
+	return out
+}
+
+// tagMatches reports whether a commit message carries a tag that is a prefix of
+// the id. One rule, so [260806], [260806-list] and the full id all work, and
+// every commit written before this rule existed keeps matching.
+func tagMatches(message, id string) bool {
+	for _, m := range commitTokenRe.FindAllStringSubmatch(message, -1) {
+		if strings.HasPrefix(id, m[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// idPrefix is the YYMMDD part, which bounds a search to one day's tags.
 func idPrefix(id string) string {
 	if i := strings.IndexByte(id, '-'); i > 0 {
 		return id[:i]

@@ -99,9 +99,19 @@ The format's other half lives in commit messages:
 [260806] fix the refresh token path
 ```
 
-Both the short form `[260806]` and the full form `[260806-migration-auth]` are
-recognized. Use the full form when several tasks share a date; `jalon render`
-warns when a short form is ambiguous.
+**A tag matches a task when it is a prefix of its id.** One rule: `[260806]`,
+`[260806-migration]` and the full `[260806-migration-auth]` all reach the same
+task, and you pick the shortest form that is unambiguous. `jalon render` warns
+when a tag is a prefix of several tasks.
+
+The whole message is searched, not just the subject, so one commit can carry
+tags for the other tasks it touches in its body without crowding the first line.
+The subject is what gets displayed.
+
+Prefer the shortest unambiguous form: it keeps commit subjects inside the fifty
+characters git recommends. The named cost is retroactive ambiguity, since a task
+created later can share a prefix with a tag already written; the warning says so
+and the parade is a longer tag on the day.
 
 This convention is what makes the task to code link atomic, inside the commit
 graph, and portable across any change of platform. It is also the part that

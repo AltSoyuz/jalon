@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formula from those checksums.
 - `make dogfood` runs the freshly built binary against this repository's own
   `.tasks/`, and CI runs it on every pull request.
+- A commit tag now matches a task when it is a **prefix** of its id, replacing
+  the two special cases of "the full id" and "the six digit date". `[260806]`,
+  `[260806-list]` and the full id all reach the same task, so subjects stay
+  inside the fifty characters git recommends. Every commit written under the
+  previous rule keeps matching.
 - `jalon list` prints one line per task, with `-status` to filter. It is the
   cheap half of orientation and the zero argument command a harness session
   start hook needs: stdout stays one line per task so no shell glue is needed

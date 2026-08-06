@@ -149,8 +149,9 @@ git commit -m "[260806] fix the refresh token path"
 ```
 
 This is what makes the task to code link atomic, inside the commit graph, and
-portable. `[260806]` and `[260806-migration-auth]` both work; use the full id
-when several tasks share a date.
+portable. A tag matches when it is a **prefix** of the id, so `[260806]`,
+`[260806-migration]` and the full id all reach the same task: use the shortest
+unambiguous form and the subject stays inside git's fifty characters.
 
 Commit task updates together with the code they describe. No long lived branch
 on `.tasks/`.

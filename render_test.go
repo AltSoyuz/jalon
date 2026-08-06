@@ -185,8 +185,60 @@ func TestRenderSiteWarnsOnSharedPrefix(t *testing.T) {
 	if _, err := renderSite(&warn, tasksDir, filepath.Join(root, "site")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(warn.String(), "share the prefix 260806") {
-		t.Errorf("an ambiguous short id must be reported, got %q", warn.String())
+	if !strings.Contains(warn.String(), "[260806] is a prefix of 2 tasks") {
+		t.Errorf("an ambiguous tag must be reported, got %q", warn.String())
+	}
+}
+
+func TestCommitTagsMatchByPrefix(t *testing.T) {
+	// One rule: a tag matches a task when it is a prefix of its id. That is what
+	// keeps commit subjects short without making them ambiguous.
+	root, tasksDir := newRepo(t)
+	mustWrite(t, filepath.Join(tasksDir, "260806-auth-refresh-token.md"), "---\nstatus: todo\n---\n\n# Auth\n")
+	mustWrite(t, filepath.Join(tasksDir, "260806-billing.md"), "---\nstatus: todo\n---\n\n# Billing\n")
+	gitCommit(t, root, "[260806-auth] short tag")
+	gitCommit(t, root, "[260806-auth-refresh-token] full id")
+	gitCommit(t, root, "[260806-bill] another task")
+
+	var warn strings.Builder
+	out := filepath.Join(root, "site")
+	if _, err := renderSite(&warn, tasksDir, out); err != nil {
+		t.Fatal(err)
+	}
+
+	page := readFile(t, filepath.Join(out, "260806-auth-refresh-token.html"))
+	for _, want := range []string{"short tag", "full id"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the auth page is missing the commit %q", want)
+		}
+	}
+	if strings.Contains(page, "another task") {
+		t.Error("a tag belonging to another task leaked in")
+	}
+	if strings.Contains(warn.String(), "prefix of") {
+		t.Errorf("no tag here is ambiguous, got the warning %q", warn.String())
+	}
+
+	// A tag in the body counts: that is how one commit references the other
+	// tasks it touches without cramming them into its subject.
+	gitCommit(t, root, "[260806-bill] a billing change\n\nAlso lands [260806-auth-refresh] work.")
+	warn.Reset()
+	if _, err := renderSite(&warn, tasksDir, out); err != nil {
+		t.Fatal(err)
+	}
+	page = readFile(t, filepath.Join(out, "260806-auth-refresh-token.html"))
+	if !strings.Contains(page, "a billing change") {
+		t.Error("a tag in the commit body must link the task, and the subject is what gets displayed")
+	}
+
+	// A tag can only ever be a prefix, never an extension of the id.
+	gitCommit(t, root, "[260806-billing-extra] not a prefix of any task")
+	warn.Reset()
+	if _, err := renderSite(&warn, tasksDir, out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(readFile(t, filepath.Join(out, "260806-billing.html")), "not a prefix") {
+		t.Error("a tag longer than the id must not match")
 	}
 }
 

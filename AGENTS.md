@@ -49,7 +49,8 @@ commit starts with a task and ends inside it.
    after it is implemented. A decision recorded afterwards is a conclusion, and
    conclusions do not stop the next agent from relitigating.
 4. `jalon append <id> "..."` for what happened, including what failed.
-5. Carry the id in the commit message: `[260806-slug] add the thing`.
+5. Carry the id in the commit message, shortest unambiguous prefix:
+   `[260806-slug] add the thing`.
 
 Entries stay on one physical line, the way `jalon append` writes them. Do not
 hand wrap them: a wrapped line breaks inline code spans in the rendered view.
