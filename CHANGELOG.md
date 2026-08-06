@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formula from those checksums.
 - `make dogfood` runs the freshly built binary against this repository's own
   `.tasks/`, and CI runs it on every pull request.
+- `jalon close -from-merge` no longer stops at the first unusable reference. An
+  ambiguous id in a merge message is reported on stderr and skipped, and the
+  other ids in the same message are still closed. It used to abort the loop and
+  silently discard valid references after the bad one, after the merge had
+  already happened.
 - A commit tag now matches a task when it is a **prefix** of its id, replacing
   the two special cases of "the full id" and "the six digit date". `[260806]`,
   `[260806-list]` and the full id all reach the same task, so subjects stay

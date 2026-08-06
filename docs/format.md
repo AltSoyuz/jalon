@@ -45,8 +45,16 @@ Bounded, rewritten at compaction, always current.
 - No counter and no central registry, so two people can create tasks on two
   branches without coordinating. Two tasks created the same day with the same
   slug collide, and jalon refuses rather than overwriting.
-- Commands accept a unique prefix (`jalon digest 260806`) and refuse to guess
-  when a prefix matches several tasks.
+- Commands accept any prefix that designates **exactly one** task
+  (`jalon digest 260806-migration`). A prefix matching several tasks is a
+  blocking error listing the candidates, never a guess: these commands are
+  about to write to a file.
+
+Note the deliberate asymmetry with commit tags, which are read only and
+therefore generous: `[260806]` matches every task it is a prefix of and the
+commit is listed on all of them, with a warning from `jalon render`. The same
+string is refused as a command argument and accepted as a tag, because guessing
+wrong costs nothing when reading and corrupts a file when writing.
 
 ## The front matter
 

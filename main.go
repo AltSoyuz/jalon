@@ -345,6 +345,13 @@ func cmdClose(args []string, stdout, stderr io.Writer, m *metric) error {
 	for _, ref := range refs {
 		t, err := resolveTask(d, ref)
 		if err != nil {
+			// Reading a merge message is not the same situation as typing an
+			// id: the merge already happened, and one unusable reference must
+			// not discard the good ones that follow it.
+			if *fromMerge {
+				fmt.Fprintf(stderr, "jalon: %v; write a longer id in the merge message\n", err)
+				continue
+			}
 			return err
 		}
 		if t.Status() == statusDone {

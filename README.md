@@ -81,12 +81,12 @@ The full history is in git, for free. That is what makes truncation safe.
 jalon new "migration auth"                       # creates the file, prints its path
 jalon new -issue 42                              # or seeds it from a GitHub issue
 jalon list -status doing                         # the cheap half of orientation
-jalon append 260806 "blocked on the refresh path"
-jalon append -decision 260806 "cookie sessions over JWT"
-jalon digest 260806                              # the whole context, one block
-jalon compact 260806                             # truncate the Log, report the budget
+jalon append 260806-migration "blocked on the refresh path"
+jalon append -decision 260806-migration "cookie sessions over JWT"
+jalon digest 260806-migration                              # the whole context, one block
+jalon compact 260806-migration                             # truncate the Log, report the budget
 jalon render                                     # regenerate .tasks/site/
-jalon close 260806
+jalon close 260806-migration
 ```
 
 Every command takes an id or its unique prefix, and refuses to guess when a
@@ -156,7 +156,7 @@ unambiguous form and the subject stays inside git's fifty characters.
 Commit task updates together with the code they describe. No long lived branch
 on `.tasks/`.
 
-`hooks/post-merge` is a sample hook that reads `closes 260806` in a merge
+`hooks/post-merge` is a sample hook that reads `closes 260806-migration` in a merge
 message and flips the status. Install it by hand or do not; nothing depends
 on it.
 
@@ -172,7 +172,7 @@ Closing needs no code at all. A pull request body holding both lines:
 
 ```
 closes #42
-closes 260806
+closes 260806-migration
 ```
 
 closes the issue through GitHub's own mechanism and the task through the

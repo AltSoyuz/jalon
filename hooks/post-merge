@@ -5,9 +5,12 @@
 #
 #   cp hooks/post-merge .git/hooks/post-merge && chmod +x .git/hooks/post-merge
 #
-# A merge message holding "closes 260806" flips that task to done and leaves a
-# dated entry in its Log. The change is left uncommitted on purpose: you decide
-# when it goes in, and `git checkout .tasks` undoes it.
+# A merge message holding "closes 260806-migration" flips that task to done and
+# leaves a dated entry in its Log. The change is left uncommitted on purpose:
+# you decide when it goes in, and `git checkout .tasks` undoes it.
+#
+# Write an id long enough to designate one task. An ambiguous one is reported
+# and skipped, and the other ids in the message are still closed.
 set -e
 
 command -v jalon >/dev/null 2>&1 || exit 0

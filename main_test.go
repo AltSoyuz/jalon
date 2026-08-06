@@ -111,6 +111,50 @@ func TestCloseFromMerge(t *testing.T) {
 	}
 }
 
+func TestCloseFromMergeKeepsGoingAfterABadReference(t *testing.T) {
+	// The merge already happened. One ambiguous reference used to abort the
+	// loop, silently discarding the valid ones after it.
+	t.Setenv("JALON_SIG", "gt")
+	_, tasksDir := newRepo(t)
+	for _, name := range []string{"260807-auth", "260807-billing"} {
+		mustWrite(t, filepath.Join(tasksDir, name+".md"), "---\nstatus: doing\n---\n\n# T\n\n## Log\n")
+	}
+
+	stdin := filepath.Join(t.TempDir(), "msg")
+	mustWrite(t, stdin, "Merge pull request #12\n\ncloses 260807\ncloses 260807-billing\n")
+	f, err := os.Open(stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	saved := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = saved }()
+
+	stdout, stderr := runOK(t, "close", "-dir", tasksDir, "-from-merge")
+	if !strings.Contains(stdout, "260807-billing done") {
+		t.Errorf("the valid reference must still be closed, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "matches 2 tasks") || !strings.Contains(stderr, "longer id") {
+		t.Errorf("the ambiguous reference must be reported with the fix, got %q", stderr)
+	}
+	task, err := ParseTask(filepath.Join(tasksDir, "260807-billing.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status() != statusDone {
+		t.Errorf("260807-billing status = %q", task.Status())
+	}
+	// The ambiguous one is untouched: jalon never guesses which task to write to.
+	other, err := ParseTask(filepath.Join(tasksDir, "260807-auth.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Status() != "doing" {
+		t.Errorf("260807-auth must be left alone, status = %q", other.Status())
+	}
+}
+
 func TestClosesRefs(t *testing.T) {
 	msg := "Merge pull request #12\n\nCloses 260806 and closes [260807-billing].\ncloses 260806\nnot a close: 260808\n"
 	got := closesRefs(msg)

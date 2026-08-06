@@ -7,10 +7,10 @@ How a person, a team and an agent actually use this, and where GitHub fits.
 ```sh
 jalon new "migration auth"           # .tasks/260806-migration-auth.md
 $EDITOR .tasks/260806-migration-auth.md   # write Context, it is the part that matters
-jalon append 260806 "blocked on the refresh path"
-jalon append -decision 260806 "cookie sessions over JWT, revocation is required"
+jalon append 260806-migration "blocked on the refresh path"
+jalon append -decision 260806-migration "cookie sessions over JWT, revocation is required"
 git commit -m "[260806] fix the refresh token path"
-jalon close 260806
+jalon close 260806-migration
 ```
 
 Commit the task update together with the code it describes. A long lived branch
@@ -25,7 +25,7 @@ detail on the one that matters.
 
 ```sh
 jalon list -status doing
-jalon digest 260806
+jalon digest 260806-migration
 ```
 
 Injecting full digests for every task at the start of a session would be exactly
@@ -60,7 +60,7 @@ broken the day the format moved.
 The full detail on one task stays one command away:
 
 ```sh
-jalon digest 260806
+jalon digest 260806-migration
 ```
 
 It writes the front matter, `Context`, `Decisions`, the last log entries, the
@@ -84,7 +84,7 @@ The conventions carry more than the binary does.
   contract; everything else is convenience.
 - **Task updates ride with the code.** No separate "update the tasks" commit.
 - **`hooks/post-merge`**, installed by hand, closes the tasks named by
-  `closes 260806` in a merge message:
+  `closes 260806-migration` in a merge message:
 
   ```sh
   cp hooks/post-merge .git/hooks/post-merge && chmod +x .git/hooks/post-merge
@@ -163,7 +163,7 @@ argued.
 
 ```
 closes #42
-closes 260806
+closes 260806-migration
 ```
 
 closes the issue through GitHub's own mechanism and the task through the
