@@ -46,3 +46,4 @@ for the tag, which fails loudly when that section is missing.
 - 2026-08-06 altsoyuz: toolchain moved to go 1.26.5, the latest stable;
   staticcheck rebuilt against it and now clean
 - 2026-08-06 altsoyuz: signatures normalized to the account identity
+- 2026-08-06 altsoyuz: repo published at github.com/AltSoyuz/jalon; the initial push predated workflow registration, so CI got a manual trigger

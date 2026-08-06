@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-run the whole suite without pushing, for an infrastructure failure or a
+  # dependency of the runner image that moved under us.
+  workflow_dispatch:
 
 permissions:
   contents: read
