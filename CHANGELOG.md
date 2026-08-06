@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formula from those checksums.
 - `make dogfood` runs the freshly built binary against this repository's own
   `.tasks/`, and CI runs it on every pull request.
+- CI: the gitleaks step runs the released binary pinned by version instead of
+  the action, which exited 1 on a scan reporting no leaks. Every action bumped
+  to its current major, and `cache: false` on setup-go since a module with no
+  dependency has no `go.sum` to cache.
 - `jalon close -from-merge` no longer stops at the first unusable reference. An
   ambiguous id in a merge message is reported on stderr and skipped, and the
   other ids in the same message are still closed. It used to abort the loop and

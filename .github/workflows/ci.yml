@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+env:
+  GITLEAKS_VERSION: "8.30.1"
+
+# Every setup-go step passes cache: false. The module has no dependency, so
+# there is no go.sum, and left on the cache warns about a missing dependencies
+# file in every job.
+
 jobs:
   test:
     name: test
@@ -22,12 +29,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The toolchain comes from go.mod, so bumping Go is one line in one file.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
+          cache: false
       - name: gofmt
         run: make fmt
       - name: go vet
@@ -39,13 +47,14 @@ jobs:
     name: dogfood
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
+          cache: false
       # jalon runs against its own .tasks/: a format change that breaks real
       # files fails here before it reaches anyone.
       - name: run jalon on this repository
@@ -55,13 +64,14 @@ jobs:
     name: crosscompile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
+          cache: false
       # The release matrix is built on every pull request, so a platform
       # specific break is caught before the tag, not during it.
       - name: build every published platform
@@ -71,11 +81,12 @@ jobs:
     name: staticcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
+          cache: false
       - name: install staticcheck
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
       - name: staticcheck
@@ -85,9 +96,17 @@ jobs:
     name: gitleaks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The binary rather than the action. The action exited 1 on a scan that
+      # reported "no leaks found", and an opaque exit code is a poor fit for the
+      # one job whose entire purpose is trust. The price is that dependabot no
+      # longer bumps it: GITLEAKS_VERSION above is now bumped by hand.
+      - name: install gitleaks
+        run: |
+          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks version
+      - name: scan the whole history
+        run: ./gitleaks git . --redact --no-banner
