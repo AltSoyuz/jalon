@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a change, knowing this tool is small on purpose
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        jalon is deliberately about a thousand lines with no dependency, and
+        every addition has to earn its complexity. The README lists the ceilings
+        that are named and **not** built, and what would earn each of them.
+        A request that names a measured problem gets a serious answer; one that
+        names a hypothetical one will probably be declined, and that is not a
+        judgement of the idea.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you hit
+      description: |
+        What you were doing, and what it cost you. Numbers help: how often, how
+        many tasks, how many tokens, how much time.
+      placeholder: |
+        On a repository with 300 tasks, finding the one about auth takes me
+        several greps because the links do not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today instead
+      description: |
+        The files are plain markdown in git, so there is usually a workaround
+        with `grep`, `git log` or an editor. Knowing it tells us what the tool
+        would actually add.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would add
+      description: |
+        If you can, say what it would cost: a dependency, a new verb, a new
+        front matter key, a change to the file format (which is a compatibility
+        surface and does not change in place).
+    validations:
+      required: false

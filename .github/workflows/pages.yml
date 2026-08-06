@@ -1,0 +1,43 @@
+name: Pages
+
+# Publishes this repository's own task view, which is the tool's own output.
+# It is the demo and the proof that `jalon render` works on real files.
+#
+# Manual and on release only: a Pages deployment failing on every push, because
+# Pages is not enabled on the repository, would be noise nobody reads.
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: render
+        run: make site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .tasks/site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,26 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# Generated view
+.tasks/site/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Local build of the root package
+/jalon
+
+# Release artifacts and generated packaging
+dist/
+packaging/homebrew/*.rb

@@ -1,0 +1,22 @@
+<h1>Heading one</h1>
+<h2>Heading two</h2>
+<h3>Heading three</h3>
+<p>A paragraph on one line. A second line of the same paragraph.</p>
+<ul>
+<li>a bullet</li>
+<li>a bullet with <code>inline code</code></li>
+<li>a bullet with a <a href="../docs/adr-3.md">relative link</a></li>
+<li>a bullet with an <a href="https://example.com/a?b=1&amp;c=2">external link</a></li>
+</ul>
+<pre><code>func main() {
+	if a &lt; b &amp;&amp; c &gt; d {
+		fmt.Println(&#34;## not a heading&#34;)
+	}
+}
+</code></pre>
+<p>Escaping: &lt;script&gt;alert(1)&lt;/script&gt; &amp; &#34;quotes&#34; and 5 &lt; 6.</p>
+<p>An [unsafe link](javascript:alert(1)) stays literal text.</p>
+<p>| a table | is | | ------- | -- | | outside | the subset |</p>
+<p>1. an ordered list is outside the subset too</p>
+<p>  - a nested bullet is outside the subset</p>
+<p>&lt;b&gt;Inline HTML&lt;/b&gt; is escaped, never interpreted.</p>

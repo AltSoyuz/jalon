@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Actions are the only third party code in this repository. The Go module has
+  # no dependency, so there is no gomod entry to write.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

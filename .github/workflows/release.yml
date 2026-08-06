@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # The same target you run on a laptop. CI publishes, it does not own the
+      # build: `make release VERSION=vX.Y.Z` reproduces these bytes anywhere.
+      - name: build the release matrix
+        run: make release VERSION=${GITHUB_REF##*/}
+
+      # The release notes are the CHANGELOG section for this tag. A missing
+      # section fails the release instead of publishing empty notes.
+      - name: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF##*/}"
+          sed -n "/^## \[${tag#v}\]/,/^## \[/p" CHANGELOG.md | sed '$d' > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## [${tag#v}]' section: move the [Unreleased] entries before tagging"
+            exit 1
+          fi
+          gh release create "$tag" --title "$tag" --notes-file notes.md dist/*

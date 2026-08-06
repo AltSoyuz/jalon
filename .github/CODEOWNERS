@@ -1,0 +1,6 @@
+* @AltSoyuz
+
+# The file format is the one surface that cannot be fixed after the fact:
+# files written by an older version must keep parsing.
+/docs/format.md @AltSoyuz
+/task.go @AltSoyuz

@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not behave as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please check against the
+        [latest release](https://github.com/AltSoyuz/jalon/releases/latest):
+        jalon is a single binary, upgrading is one `go install` away.
+
+        Two things make a jalon bug easy to fix, so please include both: the
+        exact command you ran, and the task file it ran on. The files are the
+        whole state of the system, so a bug is almost always reproducible from
+        one `.md` file plus one command.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what it did, what you expected instead.
+      placeholder: |
+        I ran `jalon compact 260806`, the Log kept 11 entries instead of 10.
+    validations:
+      required: true
+  - type: textarea
+    id: task-file
+    attributes:
+      label: The task file
+      description: |
+        The content of the `.tasks/*.md` file involved, or the smallest version
+        of it that still reproduces. Redact anything private; the format is what
+        matters, not your content.
+      render: markdown
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `jalon version`.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: darwin/arm64, linux/amd64, windows/amd64
+    validations:
+      required: true
+  - type: textarea
+    id: stderr
+    attributes:
+      label: Anything printed on stderr
+      description: |
+        jalon reports every degraded mode there: a missing git repository, a
+        missing `gh`, an unreadable linked file, a truncation. It is usually
+        where the answer is.
+      render: shell
+    validations:
+      required: false

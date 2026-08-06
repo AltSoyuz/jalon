@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ${{ matrix.os }}
+    # Windows is built by the crosscompile job but not tested here: the suite
+    # shells out to /bin/sh to stub `gh`, and making it portable would be work
+    # for a platform nobody has reported using yet.
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain comes from go.mod, so bumping Go is one line in one file.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: gofmt
+        run: make fmt
+      - name: go vet
+        run: make vet
+      - name: go test -race
+        run: make test
+
+  dogfood:
+    name: dogfood
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      # jalon runs against its own .tasks/: a format change that breaks real
+      # files fails here before it reaches anyone.
+      - name: run jalon on this repository
+        run: make dogfood
+
+  crosscompile:
+    name: crosscompile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      # The release matrix is built on every pull request, so a platform
+      # specific break is caught before the tag, not during it.
+      - name: build every published platform
+        run: make release VERSION=ci
+
+  staticcheck:
+    name: staticcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      - name: staticcheck
+        run: staticcheck ./...
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
