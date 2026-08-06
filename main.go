@@ -59,19 +59,23 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return errors.New("missing command")
 	}
 	cmd, rest := args[0], args[1:]
+	m := newMetric(cmd)
+	var err error
+	defer func() { m.flush(stderr, err) }()
+
 	switch cmd {
 	case "new":
-		return cmdNew(rest, stdout, stderr)
+		err = cmdNew(rest, stdout, stderr, m)
 	case "append":
-		return cmdAppend(rest, stdout, stderr)
+		err = cmdAppend(rest, stdout, stderr, m)
 	case "digest":
-		return cmdDigest(rest, stdout, stderr)
+		err = cmdDigest(rest, stdout, stderr, m)
 	case "compact":
-		return cmdCompact(rest, stdout, stderr)
+		err = cmdCompact(rest, stdout, stderr, m)
 	case "render":
-		return cmdRender(rest, stdout, stderr)
+		err = cmdRender(rest, stdout, stderr, m)
 	case "close":
-		return cmdClose(rest, stdout, stderr)
+		err = cmdClose(rest, stdout, stderr, m)
 	case "version", "-version", "--version":
 		fmt.Fprintln(stdout, version)
 		return nil
@@ -79,8 +83,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprint(stdout, usage)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q (try: jalon help)", cmd)
+		err = fmt.Errorf("unknown command %q (try: jalon help)", cmd)
 	}
+	return err
 }
 
 func newFlagSet(name string, out io.Writer) *flag.FlagSet {
@@ -199,7 +204,7 @@ func signature(explicit, root string) string {
 	return "unknown"
 }
 
-func cmdNew(args []string, stdout, stderr io.Writer) error {
+func cmdNew(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("new", stderr)
 	dir := dirFlag(fs)
 	status := fs.String("status", statusTodo, "initial status")
@@ -260,11 +265,12 @@ func cmdNew(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 	}
+	m.ID = t.ID
 	fmt.Fprintln(stdout, t.Path)
 	return nil
 }
 
-func cmdAppend(args []string, stdout, stderr io.Writer) error {
+func cmdAppend(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("append", stderr)
 	dir := dirFlag(fs)
 	sig := fs.String("sig", "", "signature (default: $JALON_SIG, then git user.name, then $USER)")
@@ -286,6 +292,7 @@ func cmdAppend(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	m.ID = t.ID
 	section := sectionLog
 	if *decision {
 		section = sectionDecisions
@@ -301,7 +308,7 @@ func cmdAppend(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func cmdClose(args []string, stdout, stderr io.Writer) error {
+func cmdClose(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("close", stderr)
 	dir := dirFlag(fs)
 	sig := fs.String("sig", "", "signature")
@@ -368,7 +375,7 @@ func closesRefs(msg string) []string {
 	return out
 }
 
-func cmdCompact(args []string, stdout, stderr io.Writer) error {
+func cmdCompact(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("compact", stderr)
 	dir := dirFlag(fs)
 	keep := fs.Int("keep", 10, "log entries to keep")
@@ -388,6 +395,7 @@ func cmdCompact(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	m.ID = t.ID
 	before := EstimateTokens(len(t.Bytes()))
 	if *check {
 		fmt.Fprintf(stdout, "%s: ~%d tokens, budget %d\n", t.ID, before, *budget)
@@ -415,7 +423,7 @@ func cmdCompact(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func cmdDigest(args []string, stdout, stderr io.Writer) error {
+func cmdDigest(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("digest", stderr)
 	dir := dirFlag(fs)
 	logKeep := fs.Int("log", 10, "log entries to include, newest last")
@@ -435,7 +443,8 @@ func cmdDigest(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return digest(stdout, stderr, repoRoot(d), t, digestOpts{
+	m.ID = t.ID
+	return digest(stdout, stderr, repoRoot(d), t, m, digestOpts{
 		logKeep:      *logKeep,
 		maxFileBytes: *maxFileBytes,
 		withPRs:      !*offline,
@@ -443,7 +452,7 @@ func cmdDigest(args []string, stdout, stderr io.Writer) error {
 	})
 }
 
-func cmdRender(args []string, stdout, stderr io.Writer) error {
+func cmdRender(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("render", stderr)
 	dir := dirFlag(fs)
 	out := fs.String("o", "", "output directory (default: <tasks dir>/site)")
@@ -463,6 +472,7 @@ func cmdRender(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	m.Tasks = n
 	fmt.Fprintf(stdout, "%d tasks rendered to %s in %s\n", n, outDir, time.Since(start).Round(time.Millisecond))
 	return nil
 }

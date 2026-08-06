@@ -30,6 +30,9 @@ The verbs would then be worth deleting, not defending.
   verbs; the criterion is holding the tool in your head, not the file count.
 - 2026-08-06 altsoyuz: compact truncates the Log but never rewrites Context;
   this tool holds no model and calls none.
+- 2026-08-06 altsoyuz: record the raw line, ship no stats verb: which averages
+  matter is unknown, and a summary written today would freeze that guess into
+  code
 
 ## Log
 
@@ -39,3 +42,6 @@ The verbs would then be worth deleting, not defending.
   earned.
 - 2026-08-06 altsoyuz: measurement not started yet; it needs two weeks of real
   tasks.
+- 2026-08-06 altsoyuz: the instrument for this measurement is
+  [[260806-opt-in-self-observability]]; the first four lines it recorded are its
+  own tests, not real orientations, and must be dropped before reading.

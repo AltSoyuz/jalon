@@ -110,7 +110,7 @@ esac`)
 	}
 
 	var out, warn strings.Builder
-	if err := digest(&out, &warn, root, task, digestOpts{logKeep: 10, maxFileBytes: 1024, withIssue: true}); err != nil {
+	if err := digest(&out, &warn, root, task, nil, digestOpts{logKeep: 10, maxFileBytes: 1024, withIssue: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "## Issue #42") || !strings.Contains(out.String(), "the thread as gh renders it") {
@@ -119,7 +119,7 @@ esac`)
 
 	// Offline must not call gh at all.
 	out.Reset()
-	if err := digest(&out, &warn, root, task, digestOpts{logKeep: 10, maxFileBytes: 1024}); err != nil {
+	if err := digest(&out, &warn, root, task, nil, digestOpts{logKeep: 10, maxFileBytes: 1024}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "## Issue") {
@@ -138,7 +138,7 @@ func TestDigestSurvivesAMissingGH(t *testing.T) {
 	}
 
 	var out, warn strings.Builder
-	if err := digest(&out, &warn, root, task, digestOpts{logKeep: 10, maxFileBytes: 1024, withPRs: true, withIssue: true}); err != nil {
+	if err := digest(&out, &warn, root, task, nil, digestOpts{logKeep: 10, maxFileBytes: 1024, withPRs: true, withIssue: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "still useful") {

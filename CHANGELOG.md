@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   formula from those checksums.
 - `make dogfood` runs the freshly built binary against this repository's own
   `.tasks/`, and CI runs it on every pull request.
+- Opt in self observability: with `JALON_METRICS` set to a path, every
+  invocation appends one JSON line with the verb, task, size, duration,
+  degraded state and error. Unset, nothing is written. No aggregation verb
+  ships with it; `docs/measuring.md` reads the file with `jq`.
 
 ### Notes
 

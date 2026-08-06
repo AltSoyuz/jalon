@@ -26,7 +26,7 @@ func TestDigestTruncationIsVisible(t *testing.T) {
 	}
 
 	var out, warn strings.Builder
-	if err := digest(&out, &warn, root, task, digestOpts{logKeep: 3, maxFileBytes: 10}); err != nil {
+	if err := digest(&out, &warn, root, task, nil, digestOpts{logKeep: 3, maxFileBytes: 10}); err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
@@ -61,7 +61,7 @@ func TestDigestWithoutGit(t *testing.T) {
 	}
 
 	var out, warn strings.Builder
-	if err := digest(&out, &warn, dir, task, digestOpts{logKeep: 10, maxFileBytes: 1024}); err != nil {
+	if err := digest(&out, &warn, dir, task, nil, digestOpts{logKeep: 10, maxFileBytes: 1024}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "Still useful.") {

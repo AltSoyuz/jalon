@@ -23,7 +23,7 @@ type digestOpts struct {
 //
 // The whole point is the count printed on stderr at the end: it makes the
 // comparison against a forge free, since it falls out of normal usage.
-func digest(stdout, stderr io.Writer, root string, t *Task, opt digestOpts) error {
+func digest(stdout, stderr io.Writer, root string, t *Task, m *metric, opt digestOpts) error {
 	start := time.Now()
 	var b bytes.Buffer
 
@@ -53,7 +53,9 @@ func digest(stdout, stderr io.Writer, root string, t *Task, opt digestOpts) erro
 	}
 
 	nCommits := 0
+	gitState, ghState := "ok", "skipped"
 	if !isGitRepo(root) {
+		gitState = "absent"
 		fmt.Fprintf(stderr, "jalon: %s is not a git repository: no commits, no pull requests\n", root)
 	} else {
 		out, err := gitOutput(root, "log", "--fixed-strings", "--grep", "["+t.ID+"]",
@@ -65,6 +67,10 @@ func digest(stdout, stderr io.Writer, root string, t *Task, opt digestOpts) erro
 			fmt.Fprintf(&b, "\n## Commits\n\n%s\n", out)
 		}
 		if opt.withPRs {
+			ghState = "ok"
+			if err := ghAvailable(); err != nil {
+				ghState = "absent"
+			}
 			writePRs(&b, stderr, root, t.ID)
 		}
 	}
@@ -78,6 +84,9 @@ func digest(stdout, stderr io.Writer, root string, t *Task, opt digestOpts) erro
 	n, err := stdout.Write(b.Bytes())
 	if err != nil {
 		return err
+	}
+	if m != nil {
+		m.Bytes, m.Tokens, m.Files, m.Commits, m.Git, m.GH = n, EstimateTokens(n), len(files), nCommits, gitState, ghState
 	}
 	fmt.Fprintf(stderr, "# digest %s: %d bytes, ~%d tokens (bytes/4), %d linked files, %d commits, %s\n",
 		t.ID, n, EstimateTokens(n), len(files), nCommits, time.Since(start).Round(time.Millisecond))

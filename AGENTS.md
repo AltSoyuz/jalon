@@ -5,7 +5,7 @@ Short guide for AI coding assistants working on this repository.
 ## Scope
 
 `github.com/AltSoyuz/jalon` is a single `package main` at the repository root: a
-file first task manager. Four source files, split by group of verbs.
+file first task manager. Six source files, split by group of verbs.
 
 | File | Holds |
 |---|---|
@@ -14,6 +14,7 @@ file first task manager. Four source files, split by group of verbs.
 | `digest.go` | The `digest` verb: assembling one block from the task, its links, git and the forge. |
 | `render.go` | The markdown subset, the HTML templates, the CSS, the `render` verb. |
 | `github.go` | The only place that shells out to `gh`. The whole coupling to a forge is one file you can delete. |
+| `metrics.go` | The opt in JSONL line written per invocation. No aggregation: `docs/measuring.md` reads it with `jq`. |
 
 ## Commands
 
@@ -32,6 +33,25 @@ The Go version lives in `go.mod` and nowhere else: every workflow uses
 After a Go upgrade, rebuild staticcheck (`go install
 honnef.co/go/tools/cmd/staticcheck@latest`); it refuses modules newer than the
 toolchain it was built with.
+
+## This repository is jalon's first user
+
+Track your work here with jalon, not beside it. Anything that will produce a
+commit starts with a task and ends inside it.
+
+1. `jalon digest <id>` before touching anything, even when you think you already
+   know the task. If that read does not orient you, the tool has failed at its
+   only job, and that is the most valuable bug report this project can get.
+2. `jalon new "<title>"` when no task covers the work. One coherent deliverable,
+   one task.
+3. `jalon append -decision <id> "..."` **when the arbitration happens**, not
+   after it is implemented. A decision recorded afterwards is a conclusion, and
+   conclusions do not stop the next agent from relitigating.
+4. `jalon append <id> "..."` for what happened, including what failed.
+5. Carry the id in the commit message: `[260806-slug] add the thing`.
+
+Entries stay on one physical line, the way `jalon append` writes them. Do not
+hand wrap them: a wrapped line breaks inline code spans in the rendered view.
 
 ## Rules
 

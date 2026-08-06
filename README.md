@@ -109,6 +109,10 @@ It reports its own size on stderr:
 That line is the point: comparing this against a forge costs nothing, it falls
 out of normal usage. `~tokens` is `bytes/4`, an estimate, not a tokenizer.
 
+Set `JALON_METRICS=~/.jalon-metrics.jsonl` and every invocation appends one JSON
+line there: verb, task, bytes, tokens, duration, degraded state, error. Unset,
+nothing is written. See [docs/measuring.md](docs/measuring.md).
+
 ### compact
 
 Truncates the `Log` to its last entries and replaces the older ones with one
@@ -229,6 +233,8 @@ conflicts on the same files become frequent and counted.
   never do to your files.
 - [docs/workflow.md](docs/workflow.md) is how a person, a team and an agent use
   it, hooks included, and where GitHub fits.
+- [docs/measuring.md](docs/measuring.md) is how to settle the bet this tool is
+  built on, including what it can never measure about itself.
 - [docs/release.md](docs/release.md) is the release procedure, the artifacts and
   the Homebrew question.
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) are the rules
