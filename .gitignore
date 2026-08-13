@@ -13,6 +13,11 @@ coverage.txt
 # Generated view
 .tasks/site/
 
+# Agent layer working state: throwaway worktrees and the daily job counter.
+# .jalon/agent.toml itself is versioned, which is the point of it.
+.jalon/worktrees/
+.jalon/agent-jobs-today
+
 # IDE
 .vscode/
 .idea/
