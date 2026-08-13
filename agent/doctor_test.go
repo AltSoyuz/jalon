@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,7 +48,7 @@ func TestDoctorAllGreen(t *testing.T) {
 		t.Fatalf("failed = %d, want 0:\n%s", r.Failed(), out)
 	}
 	// The order is documented, so it is asserted as an order.
-	want := []string{"config", "claude", "claude-flags", "gh", "gh-scopes", "git", "criterion", "skills"}
+	want := []string{"config", "claude", "claude-flags", "gh", "gh-scopes", "git-identity", "git", "criterion", "skills"}
 	got := names(r)
 	if len(got) != len(want) {
 		t.Fatalf("checks = %v, want %v", got, want)
@@ -249,5 +250,47 @@ func TestDoctorMakesNoModelCall(t *testing.T) {
 		if strings.Contains(c, "--print") {
 			t.Errorf("doctor made a model call:\n%s", c)
 		}
+	}
+}
+
+// A fresh system user has no git identity, and a review only discovers it after
+// spending three model calls, at the commit. Found on a real machine exactly
+// that way, so the check exists to make it free.
+func TestDoctorFailsWithoutAGitIdentity(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML)
+	// newRepo sets a local identity; unset it to be the fresh-user case.
+	mustGit(t, root, "config", "--unset", "user.email")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+
+	r, _, errb := runDoctor(t, root)
+	c := state(t, r, "git-identity")
+	if c.State != Fail {
+		t.Fatalf("git-identity = %s, want fail with no identity set", c.State)
+	}
+	if !strings.Contains(errb, "git config --global user.name") {
+		t.Errorf("the fix must be the command to run, got:\n%s", errb)
+	}
+	if !strings.Contains(errb, "fail at the commit") {
+		t.Errorf("the fix must say what would break, got:\n%s", errb)
+	}
+}
+
+func TestDoctorReportsTheGitIdentity(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML)
+
+	r, _, _ := runDoctor(t, root)
+	c := state(t, r, "git-identity")
+	if c.State != Ok {
+		t.Fatalf("git-identity = %s, want ok", c.State)
+	}
+	// Whose identity it is matters: an agent committing as you is a surprise.
+	if !strings.Contains(c.Detail, "t@example.invalid") {
+		t.Errorf("detail = %q, want it to name the identity", c.Detail)
 	}
 }

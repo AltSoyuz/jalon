@@ -230,3 +230,26 @@ func TestInitRefusesASecretInsideTheRepo(t *testing.T) {
 		t.Fatalf("err = %v, want a refusal naming the repository", err)
 	}
 }
+
+// A fresh system user has no git identity, and a review only discovers it at
+// the commit, after paying for three model calls. The setup gives it one.
+func TestInitSetsAGitIdentity(t *testing.T) {
+	script := emit(t, InitOptions{Repo: "/srv/app", User: "jalon-agent"})
+
+	if !strings.Contains(script, "git config --global user.name") {
+		t.Fatalf("the setup never sets a git identity:\n%s", script)
+	}
+	// It belongs to the unprivileged half: it is the agent user's own config,
+	// written into its own home, and needs no privilege at all.
+	_, unprivileged, ok := strings.Cut(script, "# ---------- UNPRIVILEGED ----------")
+	if !ok {
+		t.Fatal("the script has no unprivileged section")
+	}
+	if !strings.Contains(unprivileged, "git config --global user.name") {
+		t.Error("the identity is set in the root block, but it is the agent user's own config")
+	}
+	// Only when unset, so re-running never overwrites a chosen identity.
+	if !strings.Contains(script, `if [ -z "$(git config user.name || true)" ]; then`) {
+		t.Errorf("the identity is set unconditionally, so a re-run would clobber it:\n%s", script)
+	}
+}

@@ -51,6 +51,17 @@ fi
 
 # ---------- UNPRIVILEGED ----------
 cd "$REPO"
+
+# A review writes the task, then commits it. Without an identity that commit
+# fails after three model calls have already been paid for, so set one now.
+# Deliberately distinct from yours: the agent's commits should be recognisable
+# in git log at a glance.
+if [ -z "$(git config user.name || true)" ]; then
+  git config --global user.name "$USER"
+  git config --global user.email "$USER@$(hostname)"
+  echo "set the git identity: $(git config user.name) <$(git config user.email)>"
+fi
+
 mkdir -p {{quote .ConfigDir}}
 
 cat > {{quote .Config}} <<'TOML'
