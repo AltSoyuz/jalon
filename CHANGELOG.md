@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server. `jalon doctor` also checks that git has an identity: without one a
   review writes the task and dies at the commit, after three model calls have
   been paid for.
+- `jalon doctor -live` spends one real, tool-less model call to prove the model
+  answers. Off by default: a single invocation costs more than a few cents, so
+  a check on every tick would be a standing bill. Everything else doctor checks
+  establishes that a binary exists and takes the right flags, which does not
+  catch an expired token.
 
 - First working version: the `new`, `append`, `digest`, `compact`, `render` and
   `close` verbs over `.tasks/*.md`, with no external dependency.

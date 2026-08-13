@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +56,15 @@ func (r Report) Failed() int {
 	return n
 }
 
+// Options are what the caller decides about the preflight itself.
+type Options struct {
+	// Live spends one real, tool-less model call to prove the model answers.
+	// Off by default because it costs money: the measured floor for a single
+	// claude invocation is above five cents, so a check that ran on every tick
+	// would be a standing bill.
+	Live bool
+}
+
 // Doctor runs every check, in order, printing each as it finishes so that a
 // slow one shows progress.
 //
@@ -64,7 +74,7 @@ func (r Report) Failed() int {
 // silently skipped check is indistinguishable from a passing one.
 //
 // A failed check is data, not an error. The caller owns the exit status.
-func Doctor(ctx context.Context, env Env) Report {
+func Doctor(ctx context.Context, env Env, opt Options) Report {
 	var r Report
 	add := func(c Check) Check {
 		r.Checks = append(r.Checks, c)
@@ -129,7 +139,61 @@ func Doctor(ctx context.Context, env Env) Report {
 	}
 
 	add(skillsCheck())
+
+	switch {
+	case !opt.Live:
+		// Named rather than absent: a check you cannot see is one you assume
+		// passed, which is exactly how the two failures that motivated this
+		// verb got as far as they did.
+		add(Check{Name: "model", State: Skip,
+			Fix: "skipped because it spends a real model call; run jalon doctor -live to prove the model answers"})
+	case cfg == nil:
+		skip("model", "config")
+	default:
+		add(modelCheck(ctx, env.Root, cfg))
+	}
 	return r
+}
+
+// modelCheck is the only check that costs money, and the only one that proves
+// the job can do its actual work. Everything else establishes that a binary
+// exists and takes the right flags; none of that catches an expired token, and
+// a review discovers one only after writing its facts.
+//
+// Tools are disabled outright: this asks a question, and a health check that
+// could enter a tool loop is a health check that can bill like a job.
+func modelCheck(ctx context.Context, root string, cfg *Config) Check {
+	res, err := run(ctx, runOpts{
+		dir: root, name: "claude", timeout: cfg.Agent.Timeout, maxOut: 4096,
+		args: []string{
+			"--print", "reply with the single word ok",
+			"--model", cfg.Agent.ModelReview,
+			"--output-format", "text",
+			"--permission-mode", "dontAsk",
+			"--tools", "",
+			"--max-budget-usd", fmt.Sprint(cfg.Agent.MaxBudgetUSD),
+		},
+	})
+	if err != nil {
+		return Check{Name: "model", State: Fail, Detail: "no answer", Fix: modelFix(err)}
+	}
+	got := strings.TrimSpace(res.stdout)
+	if got == "" {
+		return Check{Name: "model", State: Fail, Detail: "empty answer",
+			Fix: "the model returned nothing; run the same call by hand to see why: claude -p --model " + cfg.Agent.ModelReview + " \"reply with the single word ok\""}
+	}
+	return Check{Name: "model", State: Ok, Detail: cfg.Agent.ModelReview + " answered " + strconv.Quote(truncate(got, 40))}
+}
+
+func modelFix(err error) string {
+	switch msg := err.Error(); {
+	case strings.Contains(msg, "Not logged in"), strings.Contains(msg, "/login"):
+		return "the model credentials are missing for this user. As this user, run: claude setup-token, then give the token to the job (EnvironmentFile=... in the unit, see docs/agent.md)"
+	case strings.Contains(msg, "budget"):
+		return "the call exceeded max_budget_usd_per_job before answering; a single invocation has a floor well above a few cents, so raise it in " + filepath.Join(configDir, configName)
+	default:
+		return fmt.Sprintf("run the call by hand to see why: claude -p \"reply with ok\" (%v)", err)
+	}
 }
 
 func claudeFix(err error) string {

@@ -61,6 +61,18 @@ failed.
 `jalon review` runs the same checks and refuses to start on any failure. A red
 base gets no job and no workaround.
 
+**`jalon doctor -live` spends one real model call** to prove the model answers.
+It is off by default because it costs money: the measured floor for a single
+`claude` invocation is above five cents, so a check that ran on every hourly
+tick would be a standing bill. Tools are disabled for that call, so it cannot
+enter a loop and bill like a job.
+
+Run it after setting up a machine, and after anything that touches credentials.
+Everything else `doctor` checks establishes that a binary exists and takes the
+right flags; none of that catches an expired token. On a real server this gap
+cost two failures in a row, both discovered only after a review had written its
+facts and paid for three model calls.
+
 ## `jalon review <issue-number>`
 
 Runs on the server that hosts the target app, so the probes are local `curl`

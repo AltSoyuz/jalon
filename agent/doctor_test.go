@@ -11,10 +11,14 @@ import (
 // change one thing at a time.
 var doctorTOML = strings.Replace(validTOML, `command = "make check"`, `command = "true"`, 1)
 
-func runDoctor(t *testing.T, root string) (Report, string, string) {
+func runDoctor(t *testing.T, root string, opts ...Options) (Report, string, string) {
+	var opt Options
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	t.Helper()
 	var out, errb strings.Builder
-	r := Doctor(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb})
+	r := Doctor(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb}, opt)
 	return r, out.String(), errb.String()
 }
 
@@ -48,7 +52,7 @@ func TestDoctorAllGreen(t *testing.T) {
 		t.Fatalf("failed = %d, want 0:\n%s", r.Failed(), out)
 	}
 	// The order is documented, so it is asserted as an order.
-	want := []string{"config", "claude", "claude-flags", "gh", "gh-scopes", "git-identity", "git", "criterion", "skills"}
+	want := []string{"config", "claude", "claude-flags", "gh", "gh-scopes", "git-identity", "git", "criterion", "skills", "model"}
 	got := names(r)
 	if len(got) != len(want) {
 		t.Fatalf("checks = %v, want %v", got, want)
@@ -292,5 +296,86 @@ func TestDoctorReportsTheGitIdentity(t *testing.T) {
 	// Whose identity it is matters: an agent committing as you is a surprise.
 	if !strings.Contains(c.Detail, "t@example.invalid") {
 		t.Errorf("detail = %q, want it to name the identity", c.Detail)
+	}
+}
+
+// The model check is the only one that proves the job can do its actual work,
+// and the only one that costs money. Two real failures on a server (an absent
+// login, then an unset git identity) passed every other check and died after
+// three model calls had been paid for; this is the remaining half of that gap.
+func TestDoctorLiveProvesTheModelAnswers(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude+`
+case "$*" in *"reply with the single word ok"*) echo "ok" ;; esac`)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML)
+
+	r, _, _ := runDoctor(t, root, Options{Live: true})
+	c := state(t, r, "model")
+	if c.State != Ok {
+		t.Fatalf("model = %s, want ok", c.State)
+	}
+	if !strings.Contains(c.Detail, "ok") {
+		t.Errorf("detail = %q, want it to carry what the model answered", c.Detail)
+	}
+	// A health check that can enter a tool loop can bill like a job.
+	for _, call := range s.models(t) {
+		if !strings.Contains(call, "--tools ") {
+			t.Errorf("the live check runs with tools enabled:\n%s", call)
+		}
+	}
+}
+
+// Off by default, and visibly so: a check you cannot see is one you assume
+// passed.
+func TestDoctorSkipsTheModelCheckByDefault(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML)
+
+	r, _, errb := runDoctor(t, root)
+	c := state(t, r, "model")
+	if c.State != Skip {
+		t.Errorf("model = %s, want skip without -live", c.State)
+	}
+	if !strings.Contains(errb, "-live") {
+		t.Errorf("the skip must name the flag that runs it, got:\n%s", errb)
+	}
+	if len(s.models(t)) > 0 {
+		t.Error("doctor spent a model call without -live")
+	}
+}
+
+// An expired or absent login is the failure this check exists for, so its fix
+// has to be the command that repairs it.
+func TestDoctorLiveNamesAMissingLogin(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude+`
+case "$*" in *"reply with the single word ok"*) echo "Not logged in - Please run /login" >&2; exit 1 ;; esac`)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML)
+
+	r, _, errb := runDoctor(t, root, Options{Live: true})
+	if state(t, r, "model").State != Fail {
+		t.Fatal("an unauthenticated model was accepted")
+	}
+	if !strings.Contains(errb, "claude setup-token") {
+		t.Errorf("the fix must be the command that repairs it, got:\n%s", errb)
+	}
+}
+
+// A review must never spend the live call: it is about to do real work, and a
+// health check inside a job is a second bill.
+func TestReviewNeverSpendsTheLiveCheck(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML)
+
+	var out, errb strings.Builder
+	Doctor(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb}, Options{})
+	if strings.Contains(out.String(), "ok    model") {
+		t.Error("the default preflight ran the live check")
 	}
 }
