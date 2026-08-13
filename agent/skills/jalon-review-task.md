@@ -41,6 +41,22 @@ Then write the `## Context` section of the file directly. Context is the part
 that matters: it answers "what is this and where does it stand" in a few
 paragraphs, in the order above. Keep it under a page.
 
+### Fill `links` before you stop
+
+Set the `links` front matter key to the repository-relative paths of the files
+this task is actually about, as a flow sequence:
+
+```
+links: [task.go, main.go, docs/format.md]
+```
+
+**A task that names files in its prose and leaves `links: []` is not finished.**
+`jalon digest` inlines the content of every linked file, so this key is the
+difference between the next reader getting the two files that matter and
+grepping the repository for them. If you cited a path anywhere in the Context,
+it belongs here. Three or four paths, not ten: this is the shortlist, not a
+bibliography.
+
 `status: proposed` is deliberate. This task is a proposal awaiting agreement,
 not work in progress. A person decides whether it becomes work.
 

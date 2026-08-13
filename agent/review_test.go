@@ -371,3 +371,63 @@ func TestReviewTellsThePhaseItsProbes(t *testing.T) {
 		}
 	}
 }
+
+// -next is what the timer runs. An empty queue is the normal state between
+// jobs, so it must succeed quietly rather than fail hourly.
+func TestReviewNextWithNothingLabelled(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", `case "$1 $2" in
+"auth status") echo "Logged in" ;;
+"api -i")      echo "X-Oauth-Scopes: repo" ;;
+"issue list")  printf '[]' ;;
+esac`)
+	root := newRepo(t, reviewTOML)
+
+	var out, errb strings.Builder
+	res, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{Next: true})
+	if err != nil {
+		t.Fatalf("an empty queue must not be a failure: %v", err)
+	}
+	if res.TaskID != "" {
+		t.Errorf("task id = %q, want none", res.TaskID)
+	}
+	if !strings.Contains(errb.String(), "nothing to review") {
+		t.Errorf("stderr must say why nothing happened:\n%s", errb.String())
+	}
+	if len(s.models(t)) > 0 {
+		t.Error("a model call was made with nothing labelled")
+	}
+	// No job was run, so no slot was taken.
+	if _, err := os.Stat(filepath.Join(root, ".jalon", "agent-jobs-today")); !os.IsNotExist(err) {
+		t.Error("an empty queue consumed a job from the daily cap")
+	}
+}
+
+// With several labelled issues it takes the oldest, so the queue drains in
+// order rather than by whichever the forge happened to list first.
+func TestReviewNextTakesTheOldest(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", `case "$1 $2" in
+"auth status") echo "Logged in" ;;
+"api -i")      echo "X-Oauth-Scopes: repo" ;;
+"issue list")  printf '[{"number":42},{"number":7},{"number":19}]' ;;
+"issue view")  printf '{"number":7,"title":"oldest","body":"b","url":"u","state":"OPEN"}' ;;
+"pr create")   echo "https://example.invalid/pull/1" ;;
+esac`)
+	root := newRepo(t, reviewTOML)
+
+	var out, errb strings.Builder
+	if _, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{Next: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "issue view 7") {
+			return
+		}
+	}
+	t.Errorf("want issue 7 reviewed, got calls:\n%s", strings.Join(s.of(t, "gh"), "\n"))
+}
