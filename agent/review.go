@@ -78,7 +78,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		skill: "jalon-review-facts",
 		tools: []string{"Read", "Grep", "Glob", "Bash"},
 		allow: append(probeTools(cfg.Probes), "Read", "Grep", "Glob"),
-		stdin: iss.text(),
+		stdin: iss.text() + probeList(cfg),
 		prompt: "Gather the measured facts about the issue on stdin, following the jalon-review-facts method. " +
 			"Print the facts document; do not write any file.",
 	})
@@ -89,8 +89,14 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	if err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
-	if err := gate(facts, cfg); err != nil {
+	if err := gate(facts); err != nil {
 		return keep(fmt.Errorf("review: %w (the output is in %s)", err, filepath.Join(wt.rel, reviewDir, "facts.md")))
+	}
+	// Not fatal, but the reader of the pull request has to know which claims
+	// rest on something the allowlist did not really cover.
+	suspect := suspectCommands(facts, cfg)
+	for _, s := range suspect {
+		fmt.Fprintf(env.Stderr, "jalon: check by hand: %s\n", s)
 	}
 	fmt.Fprintf(env.Stderr, "jalon: facts gathered, %d bytes\n", len(facts))
 
@@ -101,7 +107,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		skill: "jalon-review-skeptic",
 		tools: []string{"Read", "Grep", "Glob", "Bash"},
 		allow: append(probeTools(cfg.Probes), "Read", "Grep", "Glob"),
-		stdin: iss.text() + "\n--- facts start ---\n" + facts + "\n--- facts end ---\n",
+		stdin: iss.text() + probeList(cfg) + "\n--- facts start ---\n" + facts + "\n--- facts end ---\n",
 		prompt: "Try to refute the premise of the issue on stdin with a command, following the " +
 			"jalon-review-skeptic method. One pass. Print your answer; do not write any file.",
 	})
@@ -143,9 +149,17 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	if err := publish(ctx, wt, id, iss); err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
-	res.PR, _ = createPR(ctx, wt.path,
-		"Task: "+id,
-		fmt.Sprintf("Measured proposal for #%d, written by `jalon review`.\n\nMerging is the agreement; this branch holds the task file only.\n\nRefs #%d\n", iss.Number, iss.Number))
+	var body strings.Builder
+	fmt.Fprintf(&body, "Measured proposal for #%d, written by `jalon review`.\n\nMerging is the agreement; this branch holds the task file only.\n\n", iss.Number)
+	if len(suspect) > 0 {
+		body.WriteString("Check these by hand before believing the facts they support:\n\n")
+		for _, s := range suspect {
+			fmt.Fprintf(&body, "- %s\n", s)
+		}
+		body.WriteString("\n")
+	}
+	fmt.Fprintf(&body, "Refs #%d\n", iss.Number)
+	res.PR, _ = createPR(ctx, wt.path, "Task: "+id, body.String())
 
 	fmt.Fprintf(env.Stdout, "%s %s\n", id, res.PR)
 	notify(ctx, env, cfg, fmt.Sprintf("jalon review #%d: %s\n%s", iss.Number, id, res.PR))
@@ -160,6 +174,21 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	return res, nil
 }
 
+// probeList tells a phase what it may run, instead of leaving it to find out by
+// being denied. The first live runs spent turns discovering the allowlist the
+// hard way, and then wrote the refused commands into the document as though
+// they had run, which is the one thing a facts document must never do.
+func probeList(cfg *Config) string {
+	var b strings.Builder
+	b.WriteString("\n--- the only shell commands you may run ---\n")
+	for _, p := range cfg.Probes {
+		b.WriteString(p)
+		b.WriteString("\n")
+	}
+	b.WriteString("--- anything else is denied: report it in prose, never in a $ block ---\n")
+	return b.String()
+}
+
 // commandBlock is the shape the gathering skill is told to paste for every
 // command it runs.
 var commandBlock = regexp.MustCompile("(?m)^```console\\s*\\n\\$ ([^\\n]+)")
@@ -168,28 +197,59 @@ var commandBlock = regexp.MustCompile("(?m)^```console\\s*\\n\\$ ([^\\n]+)")
 // rather than a prompt: writing before facts is impossible by construction, not
 // by instruction.
 //
-// What it proves: the phase produced a document holding at least one command
-// block in the documented shape, whose command is on the allowlist. What it
-// does not prove: that the command ran. A fabricated block would pass. Removing
-// that class means having jalon run the probes itself and build the document
-// from its own output, which is the intended next step and is written down in
-// docs/agent.md as not done.
-func gate(facts string, cfg *Config) error {
+// It stops the job for one thing only: the phase narrated instead of measuring.
+// That is the failure worth a stop, and it is the one this stage exists to
+// prevent.
+//
+// It deliberately does NOT stop on what the commands were. Three live runs
+// stopped on how a command was written rather than on whether anything was
+// measured, while the measurements themselves were sound every time, so that
+// check earns a warning and not a refusal. It is also not where safety lives: a
+// facts document is evidence, never something jalon executes. What bounds the
+// job is the tool policy, the throwaway worktree, and the fact that no phase is
+// ever handed a commit or a push.
+//
+// What the gate does not prove either way: that a command ran. A fabricated
+// block passes. Removing that class means having jalon run the probes itself
+// and build the document from its own output, which is the next step and is
+// written down in docs/agent.md as not done.
+func gate(facts string) error {
 	if n := len(strings.TrimSpace(facts)); n < 200 {
 		return fmt.Errorf("the gathering phase produced %d bytes, which is not a facts document; it stopped too early", n)
 	}
-	matches := commandBlock.FindAllStringSubmatch(facts, -1)
-	if len(matches) == 0 {
+	if len(commandBlock.FindAllString(facts, 1)) == 0 {
 		return errors.New("the gathering phase produced no executed command block, so it narrated instead of measuring, and a review written on narration is worth nothing (the shape is a ```console block whose first line starts with \"$ \")")
-	}
-	for _, m := range matches {
-		if cmd := strings.TrimSpace(m[1]); !cfg.Allowed(cmd) {
-			return fmt.Errorf("the facts report running %q, which is not in probes.allowed; add it to %s or drop the claim",
-				cmd, filepath.Join(configDir, configName))
-		}
 	}
 	return nil
 }
+
+// suspectCommands lists the reported commands a reader should check by hand:
+// one that is not a probe, or one composed out of several. They are reported,
+// never fatal.
+func suspectCommands(facts string, cfg *Config) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, m := range commandBlock.FindAllStringSubmatch(facts, -1) {
+		cmd := strings.TrimSpace(m[1])
+		if seen[cmd] {
+			continue
+		}
+		switch {
+		case !cfg.Allowed(cmd):
+			seen[cmd] = true
+			out = append(out, fmt.Sprintf("%q is not in probes.allowed", cmd))
+		case strings.ContainsAny(cmd, composeMeta):
+			seen[cmd] = true
+			out = append(out, fmt.Sprintf("%q is composed of several commands, so the allowlist did not really check it", cmd))
+		}
+	}
+	return out
+}
+
+// composeMeta is what turns one command into two. Quotes are absent on purpose:
+// they group arguments, they do not chain commands, and flagging them would
+// catch an honest `git log --grep "fix"`.
+const composeMeta = "|&;<>()$`\n"
 
 // takeJobSlot enforces the daily cap with a plain text counter: one line, one
 // integer, readable with cat. That is the point of it. The date is stored beside

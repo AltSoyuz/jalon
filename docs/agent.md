@@ -75,8 +75,11 @@ the facts facts.
    built from `probes.allowed` and nothing else. jalon captures its stdout and
    writes `facts.md` itself.
 5. **The gate.** Go code, not a prompt, checks that `facts.md` is not a stub and
-   holds at least one executed command block whose command is on the allowlist.
-   Writing before facts is impossible by construction.
+   holds at least one executed command block. Writing before facts is impossible
+   by construction. It stops the job for narration and nothing else; a command
+   that is not a probe, or one composed of several, is reported on stderr and in
+   the pull request body for a person to check, because three live runs stopped
+   on how a command was written while the measurements were sound every time.
 6. **The skeptic.** A second, separate read-only invocation whose only task is
    to refute the issue's premise with a command. One pass, no loop, no debate.
 7. **Phase 2, the task file.** The model may now write, and writes exactly one
@@ -167,11 +170,13 @@ out-of-git state that drifts between servers.
    owner's repositories, with `issues:write` and `contents:write`. It cannot
    merge. The agent user has no sudo, and no `NOPASSWD` exception exists.
 3. **`--allowed-tools` is a guardrail, not a sandbox.** Bash rules are matched
-   as prefixes against the command string, and shell composition is a known way
-   around that. jalon refusing every shell metacharacter in a probe removes the
-   class where jalon itself would author such a string; it cannot stop a model
-   from composing one. Anything reading this design as "the model is sandboxed
-   by the allowlist" has it wrong.
+   as prefixes against the command string, so shell composition walks around
+   them: the first live run of `jalon review` produced
+   `ls -la .tasks/*.md | wc -l`, which an entry for `ls` covered. jalon refuses
+   every shell metacharacter in a probe, and the gate refuses a *reported*
+   command containing one, so the facts cannot claim a composed line. Neither
+   stops a model from composing one at runtime. Anything reading this design as
+   "the model is sandboxed by the allowlist" has it wrong.
 
 Probes are local `curl` by design, which means the agent user can reach whatever
 listens on localhost. Keep the allowlist to read-only endpoints, and put a
@@ -180,10 +185,18 @@ comment on any probe that is not.
 ## Known limits
 
 - **The gate does not prove execution.** It proves the phase produced a command
-  block on the allowlist rather than narration, which is the common failure. A
-  fabricated block would pass. Removing that class means having jalon run the
-  probes itself and build `facts.md` from its own output; that is the intended
-  next step, not a thing that is done.
+  block rather than narration, which is the common failure. A fabricated block
+  passes, and a live run produced exactly that: a `$ which gh` block with
+  plausible output for a command that was not a probe, where the document itself
+  cannot say whether it ran or was inferred from the environment. Removing that
+  class means having jalon run the probes itself and build `facts.md` from its
+  own output; that is the intended next step, not a thing that is done.
+- **A `$ ` block is a claim about a shell command.** The gathering phase also
+  has read tools, and its first live run rendered a `Grep` tool call as
+  `$ grep -rn ...`, which the gate then refused because `grep` was not a probe.
+  The skill now reserves `$ ` blocks for real shell commands and asks for prose
+  with a file and a line number otherwise. If a review fails on a command you
+  did not put in `probes.allowed`, check which of the two it was.
 - **POSIX only.** The criterion runs through `sh -c`, and the tests stub
   programs with `/bin/sh` scripts. Windows is already outside the test matrix.
 - **Model ids rot.** The template uses aliases (`opus`, `sonnet`, `haiku`)

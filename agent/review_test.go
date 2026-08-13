@@ -173,24 +173,41 @@ func TestReviewGateRefusesAThinDocument(t *testing.T) {
 	assertStopped(t, s, root, res, 1)
 }
 
-// A command block naming something outside the allowlist means the facts are
-// not what they claim, whether the phase ran it or invented it.
-func TestReviewGateRefusesAnUnlistedCommand(t *testing.T) {
+// A command outside the allowlist, or one composed of several, is reported for
+// a human to check rather than stopping the job: three live runs stopped on how
+// a command was written while the measurements were sound every time, and a
+// facts document is evidence, not something jalon executes.
+func TestReviewReportsSuspectCommandsWithoutStopping(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", claudeWith("# Facts\n\n"+fence+"console\n$ psql -c 'drop table users'\ndone\n"+fence+
-		"\n\nPadding so that this document is comfortably past the two hundred byte minimum the gate applies, "+
-		"because the point of this test is the allowlist and not the length.\n"))
+		"\n\n"+fence+"console\n$ jalon digest x 2>&1 || true\nok\n"+fence+
+		"\n\nPadding so that this document is comfortably past the two hundred byte minimum the gate applies.\n"))
 	s.add(t, "gh", happyGH)
 	root := newRepo(t, reviewTOML)
 
-	res, _, _, err := runReview(t, root)
-	if err == nil {
-		t.Fatal("an unlisted command was accepted")
+	res, _, errb, err := runReview(t, root)
+	if err != nil {
+		t.Fatalf("a suspect command must not stop the job: %v", err)
 	}
-	if !strings.Contains(err.Error(), "psql") || !strings.Contains(err.Error(), "probes.allowed") {
-		t.Errorf("err = %v, want it to name the command and the key", err)
+	if !strings.Contains(errb, "psql") || !strings.Contains(errb, "probes.allowed") {
+		t.Errorf("the unlisted command was not reported:\n%s", errb)
 	}
-	assertStopped(t, s, root, res, 1)
+	if !strings.Contains(errb, "composed of several commands") {
+		t.Errorf("the composed command was not reported:\n%s", errb)
+	}
+	// The reader of the pull request needs them too, not just the journal.
+	body := ""
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") {
+			body = c
+		}
+	}
+	if !strings.Contains(body, "Check these by hand") || !strings.Contains(body, "psql") {
+		t.Errorf("the pull request body does not carry the caveats:\n%s", body)
+	}
+	if res.TaskID == "" {
+		t.Error("the review produced no task")
+	}
 }
 
 // assertStopped checks the three things every failed review must be true of: it
@@ -330,4 +347,27 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s: %v", strings.Join(args, " "), err)
 	}
 	return out
+}
+
+// A phase is told what it may run rather than left to discover it by being
+// denied. The first live runs spent turns on that and then reported the refused
+// commands as though they had run.
+func TestReviewTellsThePhaseItsProbes(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+
+	if _, _, _, err := runReview(t, root); err != nil {
+		t.Fatal(err)
+	}
+	calls := s.models(t)
+	for i, name := range []string{"facts", "skeptic"} {
+		if !strings.Contains(calls[i], "the only shell commands you may run") {
+			t.Errorf("the %s phase was not given the allowlist:\n%s", name, calls[i])
+		}
+		if !strings.Contains(calls[i], "curl -s http://localhost:8080/healthz") {
+			t.Errorf("the %s phase was not given the probes themselves:\n%s", name, calls[i])
+		}
+	}
 }

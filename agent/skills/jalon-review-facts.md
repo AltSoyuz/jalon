@@ -34,11 +34,56 @@ tidy it, do not elide the boring middle.
 jalon checks for those blocks and stops the job when it finds none, because a
 review written on narration is worth nothing.
 
+### A `$ ` block means a shell command you actually ran
+
+This is the rule people get wrong, and jalon stops the job over it.
+
+A `$ ` line is a claim that you executed exactly that command in a shell. Only
+write one when that is true.
+
+Reading a file, searching the tree or listing paths with your own tools is not
+a shell command. Report those in **prose, with a file and a line number**:
+
+> `resolveTask` globs the id and parses only the matched file
+> (`main.go:171-198`), so nothing re-reads every task per call.
+
+Never dress a file read or a search up as `$ cat ...` or `$ grep ...`. That
+turns a thing you did into a claim about a command that never ran, and jalon
+refuses the whole document for it.
+
+### One command per block, no shell plumbing
+
+No pipes, no `;`, no `&&`, no subshells, no redirection. The allowlist matches
+one command, so a composed line cannot be checked against it and jalon refuses
+it. If you want a count, run the command and count in prose:
+
+    ```console
+    $ ls .tasks
+    260806-a.md
+    260807-b.md
+    ```
+
+    Two task files.
+
+not `$ ls .tasks | wc -l`.
+
 ## When a probe is refused
 
-The commands you may run are an allowlist. If you need one that is not
-permitted, write down the exact command that was refused and stop. Do not work
-around it, do not find another way, do not guess what it would have printed.
+**The exact list of commands you may run is given to you on stdin.** Read it
+before you start. Anything outside it is denied, and there is no way around
+that: no other shell, no rewriting it as a pipeline, no guessing the output.
+
+If you need something that is not on the list, say so in **prose**, in the
+"what could not be measured" section:
+
+> `which` is not on the probe list, so I could not establish whether the
+> binary on `PATH` is prebuilt or compiled per call.
+
+**Never put a refused command in a `$ ` block.** A block means "I ran this and
+here is the output". A command you were denied is the opposite of that, and
+jalon stops the whole job when it finds one, because it cannot tell a denied
+command from an invented one.
+
 The person running this will add it to `probes.allowed` and re-run.
 
 ## Numbers, not adjectives
