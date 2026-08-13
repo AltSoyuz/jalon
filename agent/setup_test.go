@@ -162,3 +162,31 @@ func TestInitRefusals(t *testing.T) {
 		})
 	}
 }
+
+// A service does not inherit a shell's PATH, and the emitted one has to cover
+// the binaries the job actually runs: the model CLI in a user directory, and
+// the toolchain the criterion needs. Getting this wrong is the most common way
+// a job that works by hand fails under systemd.
+func TestInitUnitPathCoversTheToolchain(t *testing.T) {
+	script := emit(t, InitOptions{Repo: "/srv/app", User: "agentuser"})
+	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+
+	var path string
+	for _, line := range strings.Split(unit, "\n") {
+		if rest, ok := strings.CutPrefix(line, "Environment=PATH="); ok {
+			path = rest
+		}
+	}
+	if path == "" {
+		t.Fatalf("the unit sets no PATH:\n%s", unit)
+	}
+	for _, want := range []string{
+		"/home/agentuser/.local/bin", // where claude installs itself
+		"/usr/local/go/bin",          // where the official Go tarball lands
+		"/usr/bin",
+	} {
+		if !strings.Contains(path, want) {
+			t.Errorf("PATH is missing %s: %s", want, path)
+		}
+	}
+}

@@ -9,10 +9,12 @@ Type=oneshot
 User={{.User}}
 WorkingDirectory={{.Repo}}
 
-# A service does not inherit your shell's PATH, and claude and gh usually live
-# in a user directory. This is the single most common reason a job that works
-# by hand fails under systemd.
-Environment=PATH=/home/{{.User}}/.local/bin:/usr/local/bin:/usr/bin:/bin
+# A service does not inherit your shell's PATH, and this is the single most
+# common reason a job that works by hand fails under systemd. Two things are
+# usually missing: claude and gh in a user directory, and the toolchain the
+# criterion needs. Check this line against `command -v` for every binary your
+# criterion and probes actually run.
+Environment=PATH=/home/{{.User}}/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/{{.User}}
 
 # review runs doctor first and refuses on a red base, so a failure here is a
