@@ -1,7 +1,7 @@
 ---
 status: doing
 created: 2026-08-13
-links: []
+links: [agent/review.go, agent/doctor.go, docs/agent.md]
 ---
 
 # agent orchestration: config, doctor and review
@@ -45,3 +45,4 @@ tasks directory and the render output directory" in docs/format.md.
 
 - 2026-08-13 altsoyuz: claude CLI flags verified against the installed binary before any code: --max-budget-usd, --allowed-tools, --disallowed-tools, --permission-mode, --tools, --append-system-prompt, --output-format and --model all exist. --max-turns does NOT exist, so bounding a phase is --max-budget-usd only. --permission-mode has no default value; the choices are acceptEdits, auto, bypassPermissions, manual, dontAsk, plan.
 - 2026-08-13 altsoyuz: TOML subset parser and config loading land, with docs/agent.md written. The template in the doc is loaded by TestDocsTemplateLoads, so a renamed key fails the suite rather than rotting the doc. Two findings while testing: strconv accepts 1_000 and 0x3e8 as numbers (refused explicitly now), and a fix instruction rendered with %q is not pasteable (rendered with %s now).
+- 2026-08-13 altsoyuz: doctor and review land, with the boundary test. Verified against the real machine: doctor reports the missing config, still runs every independent check, skips the config dependent ones by name, and validated 9 flags against the installed claude 2.1.229. make check, staticcheck and the linux amd64/arm64 cross builds are green.

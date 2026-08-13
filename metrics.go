@@ -33,6 +33,7 @@ type metric struct {
 	Files   int    `json:"files,omitempty"`
 	Commits int    `json:"commits,omitempty"`
 	Tasks   int    `json:"tasks,omitempty"`
+	Checks  int    `json:"checks,omitempty"`
 	Git     string `json:"git,omitempty"`
 	GH      string `json:"gh,omitempty"`
 	Err     string `json:"err,omitempty"`

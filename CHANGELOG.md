@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional agent layer, in its own `agent/` package: `jalon doctor` checks that
+  a machine can run an agent job, and `jalon review <issue>` turns a GitHub
+  issue into a measured task proposal in a pull request. It reads
+  `.jalon/agent.toml`, and it is the only part of jalon that calls a model. The
+  core still holds none: `TestCoreDoesNotImportAgent` fails if a core file ever
+  imports the layer, so `rm -rf agent agent_cmd.go` leaves a working task
+  manager. Still no dependency; the configuration is read by a small TOML subset
+  parser that refuses everything outside its grammar with the line and the fix.
+  See `docs/agent.md`.
+
 - First working version: the `new`, `append`, `digest`, `compact`, `render` and
   `close` verbs over `.tasks/*.md`, with no external dependency.
 - File format: `YYMMDD-slug` ids, a `key: value` front matter that stays valid
