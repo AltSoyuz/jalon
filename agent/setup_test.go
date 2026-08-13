@@ -253,3 +253,39 @@ func TestInitSetsAGitIdentity(t *testing.T) {
 		t.Errorf("the identity is set unconditionally, so a re-run would clobber it:\n%s", script)
 	}
 }
+
+// The job updates itself, so a merge reaches the server without a second copy
+// of the binary to keep in step. The alternative was a jalon update verb, which
+// would have duplicated gh and git in Go for one usage.
+func TestInitUnitUpdatesItself(t *testing.T) {
+	script := emit(t, InitOptions{Repo: "/srv/app", User: "u"})
+	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+
+	// A network blip must not fail the tick hourly, so the pull carries the
+	// systemd "ignore failure" prefix; the build must not, because code that
+	// does not compile must not run.
+	if !strings.Contains(unit, "ExecStartPre=-/usr/bin/git -C /srv/app pull --ff-only") {
+		t.Errorf("the pull is missing, or is fatal, or invents merges:\n%s", unit)
+	}
+	if !strings.Contains(unit, "ExecStartPre=/usr/bin/make -C /srv/app build") {
+		t.Errorf("the build is missing or non fatal:\n%s", unit)
+	}
+	// The binary is the one just built, in the checkout the agent owns: no
+	// second copy anywhere, and no privileged install step.
+	if !strings.Contains(unit, "ExecStart=/srv/app/bin/jalon review -next") {
+		t.Errorf("the job does not run the binary it just built:\n%s", unit)
+	}
+	if strings.Contains(script, "/usr/local/bin/jalon") {
+		t.Errorf("the setup still refers to a shared copy of the binary:\n%s", script)
+	}
+	// The model runs `jalon new` inside the worktree, so that same binary has
+	// to be on the phase's PATH.
+	if !strings.Contains(unit, "Environment=PATH=/srv/app/bin:") {
+		t.Errorf("the built binary is not first on PATH:\n%s", unit)
+	}
+	// With the version moving on its own, the only way to say afterwards which
+	// build produced which task is the metrics line.
+	if !strings.Contains(unit, "Environment=JALON_METRICS=") {
+		t.Errorf("nothing records which version ran:\n%s", unit)
+	}
+}
