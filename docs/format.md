@@ -132,3 +132,9 @@ survives if you ever delete the binary.
 - It never reorders sections or reflows prose.
 - It never deletes a file.
 - It never writes outside the tasks directory and the render output directory.
+
+The agent layer (`jalon review`, see [`agent.md`](./agent.md)) is the one thing
+that writes elsewhere, and only inside a throwaway git worktree it created and
+removes: its working files never touch your checkout, and the only thing it
+commits is a task file, on its own branch, in a pull request you merge or
+discard.

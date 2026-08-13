@@ -38,6 +38,12 @@ commands:
   close <id>           set the status to done
   version              print the version
 
+The agent layer is opt in, needs .jalon/agent.toml, and is the only part of
+jalon that calls a model (see docs/agent.md):
+
+  doctor               check that this machine can run an agent job
+  review <issue>       measure a GitHub issue, propose a task in a pull request
+
 Commits are linked to a task by carrying its id in the message:
 
   git commit -m "[260806] fix the refresh token path"
@@ -79,6 +85,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		err = cmdRender(rest, stdout, stderr, m)
 	case "close":
 		err = cmdClose(rest, stdout, stderr, m)
+	case "doctor":
+		err = cmdDoctor(rest, stdout, stderr, m)
+	case "review":
+		err = cmdReview(rest, stdout, stderr, m)
 	case "version", "-version", "--version":
 		fmt.Fprintln(stdout, version)
 		return nil

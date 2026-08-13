@@ -4,8 +4,10 @@ Short guide for AI coding assistants working on this repository.
 
 ## Scope
 
-`github.com/AltSoyuz/jalon` is a single `package main` at the repository root: a
-file first task manager. Six source files, split by group of verbs.
+`github.com/AltSoyuz/jalon` is a file first task manager. The **core** is a
+single `package main` at the repository root, six source files split by group of
+verbs. Beside it sits one subpackage, `agent/`, which is the only part of jalon
+that calls a model.
 
 | File | Holds |
 |---|---|
@@ -13,8 +15,10 @@ file first task manager. Six source files, split by group of verbs.
 | `task.go` | The file format: front matter, sections, entries, ids, creation. |
 | `digest.go` | The `digest` verb: assembling one block from the task, its links, git and the forge. |
 | `render.go` | The markdown subset, the HTML templates, the CSS, the `render` verb. |
-| `github.go` | The only place that shells out to `gh`. The whole coupling to a forge is one file you can delete. |
+| `github.go` | The only place the core shells out to `gh`. The whole coupling to a forge is one file you can delete. |
 | `metrics.go` | The opt in JSONL line written per invocation. No aggregation: `docs/measuring.md` reads it with `jq`. |
+| `agent_cmd.go` | The only bridge to `agent/`: the `doctor` and `review` verbs, flag parsing and nothing else. |
+| `agent/` | The orchestration layer: config, preflight, the measured review. Its own package, on purpose. `docs/agent.md`. |
 
 ## Commands
 
@@ -73,16 +77,29 @@ hand wrap them: a wrapped line breaks inline code spans in the rendered view.
 - **The markdown subset is a contract.** Extending it means extending
   `testdata/subset.md` and its golden output. Anything unsupported stays escaped
   literal text; nothing is ever guessed into HTML.
-- **This tool holds no model and calls none.** Rewriting `Context` is the
-  user's job, by design.
+- **The core holds no model and calls none.** Rewriting `Context` is the user's
+  job, by design. The agent layer is the exception and it is fenced: it lives in
+  `agent/`, it is opt in, it needs `.jalon/agent.toml`, and a core file that
+  imports it fails `TestCoreDoesNotImportAgent`.
+- **The agent layer is removable.** `rm -rf agent agent_cmd.go`, drop two cases
+  from the switch, and the task manager is intact: no model, no network, no key.
+  That is what the boundary test protects, and it is the whole reason `agent/`
+  is a package rather than six more files at the root.
 - **No synchronization with a forge.** The bridge is one way, on demand and
-  stateless, and it lives entirely in `github.go`. Anything that needs a token,
-  a mapping table or a schedule is out of scope; the reasoning is in
-  `docs/workflow.md`.
+  stateless, and in the core it lives entirely in `github.go`. Anything that
+  needs a mapping table is out of scope; the reasoning is in `docs/workflow.md`.
+  `agent/gh.go` is the equivalent for the agent layer: it reads issues and opens
+  pull requests, and it still pushes no task state back to a forge.
 - **`gh` is optional everywhere.** Its absence is reported on stderr and never
   fatal, except in `jalon new -issue`, where it is the whole point of the call.
 - New behavior needs a test. Bug fixes need a regression test. Tests that touch
-  `gh` use the `fakeGH` stub in `github_test.go` and stay offline.
+  `gh` use the `fakeGH` stub in `github_test.go` and stay offline; the agent
+  layer uses the same technique in `agent/stub_test.go`, where `PATH` is the
+  stub directory alone so that "this machine has no `claude`" is expressible.
+- **The agent layer never gets a capability it can be denied instead.** jalon
+  performs every git and `gh` mutation itself, so no phase is handed a commit, a
+  push or a merge. `--allowed-tools` is a guardrail, not a sandbox; the worktree
+  is the boundary.
 - User visible changes get a `CHANGELOG.md` entry under `## [Unreleased]`. A tag
   whose section is missing fails the release workflow.
 - The file format is documented in `docs/format.md`; a change there and a change
