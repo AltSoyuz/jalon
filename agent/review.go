@@ -59,7 +59,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		opt.Issue = n
 	}
 
-	report := Doctor(ctx, env)
+	report := Doctor(ctx, env, Options{})
 	if n := report.Failed(); n > 0 {
 		return res, fmt.Errorf("review: %d of %d preflight checks failed; a red base gets no job, the fix for each is on stderr above", n, len(report.Checks))
 	}

@@ -1,5 +1,5 @@
 ---
-status: doing
+status: done
 created: 2026-08-13
 links: []
 ---
@@ -16,3 +16,5 @@ links: []
 
 - 2026-08-13 altsoyuz: git-identity check added: a fresh system user has no git identity, so review writes the task and dies at the commit. Found on homeserver exactly that way. agent-init now sets an identity in the unprivileged block, distinct from the owner's so the agent's commits are recognisable in git log, and only when unset so a re-run never clobbers a chosen one.
 - 2026-08-13 altsoyuz: still missing: doctor does not prove the model answers. The plan named a doctor -live that spends a capped call, and it is the remaining gap of the same class. Measured floor for one claude -p invocation on the server is above 0.05 USD, so a live check costs real money and must stay opt in.
+- 2026-08-13 altsoyuz: doctor -live added: one tool-less model call, off by default, with the fix for a missing login naming claude setup-token. Tools disabled so a health check cannot enter a loop and bill like a job. docs/workflow.md corrected too: the closes convention needs the id in a commit message, since a forge composes the merge message from the title and the commits and never from the pull request body.
+- 2026-08-13 altsoyuz: closed.
