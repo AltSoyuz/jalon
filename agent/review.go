@@ -14,6 +14,7 @@ import (
 
 type ReviewOptions struct {
 	Issue        int
+	Next         bool   // pick the oldest open issue labelled for review
 	TasksDir     string // the resolved .tasks directory of the real repository
 	KeepWorktree bool
 }
@@ -41,6 +42,21 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		return res, fmt.Errorf("review: %d of %d preflight checks failed; a red base gets no job, the fix for each is on stderr above", n, len(report.Checks))
 	}
 	cfg := report.Config
+
+	if opt.Next {
+		n, err := nextIssue(ctx, env.Root)
+		if err != nil {
+			return res, fmt.Errorf("review: %w", err)
+		}
+		if n == 0 {
+			// Nothing labelled is not a failure: it is the normal state of a
+			// timer between jobs, and a unit that failed hourly on an empty
+			// queue would train everyone to ignore it.
+			fmt.Fprintf(env.Stderr, "jalon: no open issue labelled %q, nothing to review\n", LabelMeasure)
+			return res, nil
+		}
+		opt.Issue = n
+	}
 
 	if err := takeJobSlot(env.Root, cfg); err != nil {
 		return res, fmt.Errorf("review: %w", err)

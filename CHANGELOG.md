@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manager. Still no dependency; the configuration is read by a small TOML subset
   parser that refuses everything outside its grammar with the line and the fix.
   See `docs/agent.md`.
+- `jalon agent-init` prints the configuration, a systemd unit and a timer for
+  one machine, and installs nothing: the privileged half sits behind an explicit
+  `--root` flag, so the output is read before it runs and diffs against what is
+  deployed. The units are embedded in the binary because the thing you copy to a
+  server is the binary, not the repository. `jalon review -next` takes the oldest
+  open issue labelled `measure`, and an empty queue succeeds quietly so an idle
+  timer never turns red.
 
 - First working version: the `new`, `append`, `digest`, `compact`, `render` and
   `close` verbs over `.tasks/*.md`, with no external dependency.

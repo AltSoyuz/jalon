@@ -107,9 +107,12 @@ mode this whole file exists to avoid.
 # .jalon/agent.toml
 
 [agent]
-model_triage           = "haiku"   # an alias, or a pinned id like "claude-haiku-4-5-20251001"
-model_review           = "opus"
-model_work             = "sonnet"
+# Pinned ids, not aliases. "sonnet" resolves to whatever the latest sonnet is,
+# so an alias changes the model under you without anything saying so. On a
+# server you want reproducible, name the model.
+model_triage           = "claude-haiku-4-5"
+model_review           = "claude-sonnet-5"
+model_work             = "claude-sonnet-5"
 max_budget_usd_per_job = 3.0
 daily_job_cap          = 10
 counter_file           = ".jalon/agent-jobs-today"
@@ -199,9 +202,11 @@ comment on any probe that is not.
   did not put in `probes.allowed`, check which of the two it was.
 - **POSIX only.** The criterion runs through `sh -c`, and the tests stub
   programs with `/bin/sh` scripts. Windows is already outside the test matrix.
-- **Model ids rot.** The template uses aliases (`opus`, `sonnet`, `haiku`)
-  because a pinned id in a template is stale in six months. A pinned id works
-  and is the better choice on a server you want reproducible.
+- **Pinned model ids go stale, and that is the point.** An alias silently
+  retargets when a new model ships, which is a change to the thing you measured
+  with nothing in git to show it. A pinned id fails loudly or keeps behaving the
+  same, and moving it is a commit you can revert. Re-pin deliberately, after a
+  run you looked at.
 
 ## Deployment
 
@@ -209,5 +214,38 @@ One binary per server, one `scp`. No state outside git and the systemd units:
 the counter file is one line holding an integer, and diagnosis is
 `journalctl -u jalon-agent`, `cat` on that counter, and the last `facts.md`.
 
-The systemd unit and timer are a later task; nothing here runs on a schedule
-yet.
+**jalon emits the setup; it never performs it.**
+
+```sh
+jalon agent-init -repo /srv/app -user jalon-agent -port 8080 > setup.sh
+less setup.sh            # read it
+sh setup.sh              # unprivileged: writes .jalon/agent.toml and says what is next
+sudo sh setup.sh --root  # only after doctor and one real review have passed
+```
+
+The output is a configuration file, a systemd unit, a timer, and the commands
+that install them. The privileged half is behind an explicit `--root` flag, so
+running the script the obvious way creates no user and writes nothing into
+`/etc`. The units are embedded in the binary rather than shipped as files in
+this repository, because the thing you copied to the server is the binary: a
+unit file you would have to clone jalon to find is a unit file you do not have.
+
+There is no `jalon setup` that does it for you, on purpose. It would need root
+in the one binary whose entire blast-radius argument is that the agent user has
+no sudo, and it would put Debian specifics into a tool that has no
+operating-system-specific line and cross-compiles to nine platforms. It would
+also run fewer than ten times over the life of the tool. Emitting text costs
+sixty lines, is inspectable before it runs, and `diff`s against what is
+deployed.
+
+The timer runs `jalon review -next`: the oldest open issue labelled `measure`.
+Nothing labelled is a success, not a failure, so an idle queue does not turn
+the unit red every hour. Until `jalon triage` exists, apply that label by hand.
+
+Two things the runbook will remind you of, because both are easy to miss:
+
+- **The agent user needs its own model credentials.** Yours live in your home
+  directory and a system user cannot read them. Run `claude setup-token` as
+  that user, or give it an API key through an `EnvironmentFile`.
+- **Reverting is two commands**, and the script prints them:
+  `systemctl disable --now jalon-agent.timer && rm /etc/systemd/system/jalon-agent.*`
