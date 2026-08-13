@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   server is the binary, not the repository. `jalon review -next` takes the oldest
   open issue labelled `measure`, and an empty queue succeeds quietly so an idle
   timer never turns red.
+- `jalon review -next` resolves the queue before running the preflight, so an
+  hourly tick that finds nothing labelled no longer runs the repository's whole
+  criterion and throws the result away. Measured at ~3.6s per tick on a real
+  server. `jalon doctor` also checks that git has an identity: without one a
+  review writes the task and dies at the commit, after three model calls have
+  been paid for.
 
 - First working version: the `new`, `append`, `digest`, `compact`, `render` and
   `close` verbs over `.tasks/*.md`, with no external dependency.
