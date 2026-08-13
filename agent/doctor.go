@@ -118,6 +118,8 @@ func Doctor(ctx context.Context, env Env) Report {
 		add(scopesCheck(ctx, env.Root))
 	}
 
+	add(identityCheck(ctx, env.Root))
+
 	if cfg == nil {
 		skip("git", "config")
 		skip("criterion", "config")
@@ -191,6 +193,20 @@ func scopesCheck(ctx context.Context, root string) Check {
 	}
 	return Check{Name: "gh-scopes", State: Warn, Detail: "no scope header",
 		Fix: "gh sent no scope header, which is what a fine grained token does; check by hand that it has issues:write and contents:write on this repository"}
+}
+
+// identityCheck refuses a user that cannot commit. A review spends three model
+// calls before it reaches `git commit`, so an unset identity costs a whole job
+// to discover: on a fresh system user this check is the difference between
+// failing for free and failing after paying.
+func identityCheck(ctx context.Context, root string) Check {
+	name, nerr := git(ctx, root, "config", "user.name")
+	email, eerr := git(ctx, root, "config", "user.email")
+	if nerr != nil || eerr != nil || strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" {
+		return Check{Name: "git-identity", State: Fail, Detail: "unset",
+			Fix: `git has no identity for this user, so a review would write the task and fail at the commit. Set one that is distinct from yours, so the agent's commits are recognisable: git config --global user.name "jalon-agent" && git config --global user.email "jalon-agent@$(hostname)"`}
+	}
+	return Check{Name: "git-identity", State: Ok, Detail: name + " <" + email + ">"}
 }
 
 func gitCheck(ctx context.Context, root string, cfg *Config) Check {
