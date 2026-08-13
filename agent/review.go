@@ -37,16 +37,17 @@ const reviewDir = ".jalon-review"
 func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, error) {
 	var res ReviewResult
 
-	report := Doctor(ctx, env)
-	if n := report.Failed(); n > 0 {
-		return res, fmt.Errorf("review: %d of %d preflight checks failed; a red base gets no job, the fix for each is on stderr above", n, len(report.Checks))
-	}
-	cfg := report.Config
-
+	// The queue is resolved before the preflight, and only on the -next path.
+	// Doctor runs the repository's criterion in full, so an hourly tick that
+	// finds nothing would otherwise pay for a test suite and throw the result
+	// away. nextIssue needs the root and nothing Doctor produces, so the order
+	// costs nothing to invert.
 	if opt.Next {
 		n, err := nextIssue(ctx, env.Root)
 		if err != nil {
-			return res, fmt.Errorf("review: %w", err)
+			// gh is the one thing this path needs before the preflight has had
+			// a chance to diagnose it, so point at the verb that will.
+			return res, fmt.Errorf("review: cannot read the queue: %w; run jalon doctor", err)
 		}
 		if n == 0 {
 			// Nothing labelled is not a failure: it is the normal state of a
@@ -57,6 +58,12 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		}
 		opt.Issue = n
 	}
+
+	report := Doctor(ctx, env)
+	if n := report.Failed(); n > 0 {
+		return res, fmt.Errorf("review: %d of %d preflight checks failed; a red base gets no job, the fix for each is on stderr above", n, len(report.Checks))
+	}
+	cfg := report.Config
 
 	if err := takeJobSlot(env.Root, cfg); err != nil {
 		return res, fmt.Errorf("review: %w", err)

@@ -373,7 +373,10 @@ func TestReviewTellsThePhaseItsProbes(t *testing.T) {
 }
 
 // -next is what the timer runs. An empty queue is the normal state between
-// jobs, so it must succeed quietly rather than fail hourly.
+// jobs, so it must succeed quietly rather than fail hourly, and it must not pay
+// for the criterion: doctor runs the repository's whole test suite, and a tick
+// that finds nothing would throw that away. Measured at ~3.6s per tick on a
+// real server before this was fixed.
 func TestReviewNextWithNothingLabelled(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
@@ -382,7 +385,9 @@ func TestReviewNextWithNothingLabelled(t *testing.T) {
 "api -i")      echo "X-Oauth-Scopes: repo" ;;
 "issue list")  printf '[]' ;;
 esac`)
-	root := newRepo(t, reviewTOML)
+	// A criterion that leaves a trace, so "did not run" is observable rather
+	// than assumed.
+	root := newRepo(t, strings.Replace(reviewTOML, `command = "true"`, `command = "touch criterion-ran"`, 1))
 
 	var out, errb strings.Builder
 	res, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
@@ -399,9 +404,38 @@ esac`)
 	if len(s.models(t)) > 0 {
 		t.Error("a model call was made with nothing labelled")
 	}
+	// The whole point of the reorder.
+	if _, err := os.Stat(filepath.Join(root, "criterion-ran")); !os.IsNotExist(err) {
+		t.Error("an empty queue ran the criterion; the preflight must come after the queue on the -next path")
+	}
 	// No job was run, so no slot was taken.
 	if _, err := os.Stat(filepath.Join(root, ".jalon", "agent-jobs-today")); !os.IsNotExist(err) {
 		t.Error("an empty queue consumed a job from the daily cap")
+	}
+}
+
+// A broken forge on the -next path is reported before the preflight has had a
+// chance to diagnose it, so the message has to point at the verb that will.
+func TestReviewNextWithABrokenForge(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", `case "$1 $2" in
+"issue list") echo "gh: could not reach github.com" >&2; exit 1 ;;
+*) echo "Logged in" ;;
+esac`)
+	root := newRepo(t, reviewTOML)
+
+	var out, errb strings.Builder
+	_, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{Next: true})
+	if err == nil {
+		t.Fatal("a forge failure was accepted")
+	}
+	if !strings.Contains(err.Error(), "jalon doctor") {
+		t.Errorf("err = %v, want it to point at doctor", err)
+	}
+	if len(s.models(t)) > 0 {
+		t.Error("a model call was made despite an unreadable queue")
 	}
 }
 

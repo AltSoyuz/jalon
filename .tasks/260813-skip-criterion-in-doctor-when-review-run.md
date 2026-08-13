@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: done
 created: 2026-08-13
 links: [agent/review.go, agent/doctor.go, Makefile]
 ---
@@ -23,3 +23,5 @@ The fix is a reorder, not a new mechanism: when `opt.Next` is set, resolve `next
 ## Log
 
 - 2026-08-13 jalon-agent: measured make check twice locally (warm cache): ~3.6-3.7s wall, dominated by go test -race across the two packages; confirmed structurally that Doctor (and its unconditional criterionCheck) runs before ReviewOptions.Next is resolved, so an hourly tick with nothing labelled for review still pays the full cost; could not measure a cold-start tick on a live deployed timer, since agent-init only landed in this same branch
+- 2026-08-13 altsoyuz: implemented as proposed: nextIssue resolves before Doctor on the -next path only. The regression this introduces is diagnostic, not functional, and is handled: a forge failure on that path now happens before the preflight could name it, so the error points at jalon doctor. Tests assert the criterion leaves no trace on an empty queue, rather than assuming it.
+- 2026-08-13 altsoyuz: closed.
