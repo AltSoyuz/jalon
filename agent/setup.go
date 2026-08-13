@@ -37,6 +37,10 @@ type InitOptions struct {
 	User   string // the dedicated system user the job runs as
 	Port   int    // the local port of the app to probe, 0 for none
 	Branch string
+	// EnvFile is an optional machine secrets file the unit reads, for the case
+	// where the model credentials are a token rather than a stored login.
+	// jalon references it and never writes it: the secret stays yours.
+	EnvFile string
 }
 
 func (o *InitOptions) validate() error {
@@ -49,6 +53,16 @@ func (o *InitOptions) validate() error {
 		return fmt.Errorf("-user is required: the dedicated system user, which must not be your own and must have no sudo")
 	case o.Port < 0 || o.Port > 65535:
 		return fmt.Errorf("-port %d is not a port", o.Port)
+	}
+	if o.EnvFile != "" {
+		if !filepath.IsAbs(o.EnvFile) {
+			return fmt.Errorf("-env-file %q must be absolute: systemd resolves it from no working directory", o.EnvFile)
+		}
+		// The file holds a token. Inside the repository it is one `git add -A`
+		// away from being published, and jalon never writes it either way.
+		if strings.HasPrefix(filepath.Clean(o.EnvFile)+string(filepath.Separator), filepath.Clean(o.Repo)+string(filepath.Separator)) {
+			return fmt.Errorf("-env-file %q is inside the repository: a secret there is one commit away from being published, put it under /etc", o.EnvFile)
+		}
 	}
 	if o.Branch == "" {
 		o.Branch = "main"

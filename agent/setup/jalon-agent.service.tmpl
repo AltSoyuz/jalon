@@ -16,6 +16,12 @@ WorkingDirectory={{.Repo}}
 # criterion and probes actually run.
 Environment=PATH=/home/{{.User}}/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/{{.User}}
+{{- if .EnvFile}}
+
+# Machine secrets, 0600 and owned by root. jalon references this file and never
+# writes it, so the token never passes through a generated script.
+EnvironmentFile={{.EnvFile}}
+{{- end}}
 
 # review runs doctor first and refuses on a red base, so a failure here is a
 # real failure and not a half-finished job.

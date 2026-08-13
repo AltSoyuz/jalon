@@ -190,3 +190,43 @@ func TestInitUnitPathCoversTheToolchain(t *testing.T) {
 		}
 	}
 }
+
+// The secrets file is referenced, never written: jalon must not put a token
+// into a generated script that people paste around.
+func TestInitEnvFileIsReferencedNotWritten(t *testing.T) {
+	script := emit(t, InitOptions{Repo: "/srv/app", User: "u", EnvFile: "/etc/jalon-agent.env"})
+
+	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+	if !strings.Contains(unit, "EnvironmentFile=/etc/jalon-agent.env") {
+		t.Errorf("the unit does not read the secrets file:\n%s", unit)
+	}
+	// Nothing in the script may write it, and the root block must refuse when
+	// it is absent or world readable rather than let the timer fail later.
+	for _, forbidden := range []string{"CLAUDE_CODE_OAUTH_TOKEN=sk", "> /etc/jalon-agent.env"} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("the script writes the secrets file (%q):\n%s", forbidden, script)
+		}
+	}
+	for _, want := range []string{"missing /etc/jalon-agent.env", "is not 0600"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the root block does not refuse on %q:\n%s", want, script)
+		}
+	}
+}
+
+// Absent the flag, nothing about a secrets file appears at all.
+func TestInitWithoutEnvFile(t *testing.T) {
+	script := emit(t, InitOptions{Repo: "/srv/app", User: "u"})
+	if strings.Contains(script, "EnvironmentFile") {
+		t.Errorf("no -env-file was given but the unit reads one:\n%s", script)
+	}
+}
+
+// A token inside the repository is one `git add -A` from being published.
+func TestInitRefusesASecretInsideTheRepo(t *testing.T) {
+	var b strings.Builder
+	err := Init(&b, "test", InitOptions{Repo: "/srv/app", User: "u", EnvFile: "/srv/app/.env"})
+	if err == nil || !strings.Contains(err.Error(), "inside the repository") {
+		t.Fatalf("err = %v, want a refusal naming the repository", err)
+	}
+}

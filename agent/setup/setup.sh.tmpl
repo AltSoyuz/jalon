@@ -17,6 +17,22 @@ if [ "${1-}" = "--root" ]; then
   # you. The agent user gets no sudo: that absence is what makes production a
   # structural gate rather than a promise.
   id "$USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$USER"
+{{- if .EnvFile}}
+
+  # The unit reads {{.EnvFile}}. Refuse now rather than let the timer fail on
+  # an auth error at three in the morning. jalon never writes this file: it
+  # holds a token, and a generated script is a thing people paste around.
+  if [ ! -f {{quote .EnvFile}} ]; then
+    echo "missing {{.EnvFile}}. Create it, readable only by root:" >&2
+    echo "  install -m 600 -o root -g root /dev/null {{.EnvFile}}" >&2
+    echo "  \$EDITOR {{.EnvFile}}   # one line: CLAUDE_CODE_OAUTH_TOKEN=..." >&2
+    exit 1
+  fi
+  if [ "$(stat -c '%a' {{quote .EnvFile}})" != "600" ]; then
+    echo "{{.EnvFile}} is not 0600; it holds a token: chmod 600 {{.EnvFile}}" >&2
+    exit 1
+  fi
+{{- end}}
 
   cat > /etc/systemd/system/jalon-agent.service <<'UNIT'
 {{template "jalon-agent.service.tmpl" .}}
