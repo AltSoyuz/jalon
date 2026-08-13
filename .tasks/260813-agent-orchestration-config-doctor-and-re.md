@@ -1,5 +1,5 @@
 ---
-status: doing
+status: done
 created: 2026-08-13
 links: [agent/review.go, agent/doctor.go, docs/agent.md]
 ---
@@ -53,3 +53,5 @@ tasks directory and the render output directory" in docs/format.md.
 - 2026-08-13 altsoyuz: second live run failed the gate on "$ which gh", a command that is not a probe, reported in a block with plausible output. Whether it ran or was inferred from PATH cannot be told from the document, which is the gate's documented limit and the argument for having jalon run the probes itself. Root cause fixed instead: the phases now receive the allowlist on stdin rather than discovering it by denial, and the skill forbids putting a refused command in a block.
 - 2026-08-13 altsoyuz: fourth live run went end to end: facts 6255 bytes, skeptic 1251, task written, branch pushed, PR opened, worktree removed, no suspect command. The task refutes both halves of the issue, including that LoadTasks is never in the digest call path, which is verifiable and correct, and proposes doing nothing. Cost about four runs of three sonnet calls each under a 2 USD per job cap.
 - 2026-08-13 altsoyuz: models pinned to claude-sonnet-5 and claude-haiku-4-5 instead of the sonnet and haiku aliases, which retarget silently when a new model ships. review -next added so the emitted unit invokes a verb that exists: it takes the oldest open issue labelled measure, and an empty queue succeeds quietly rather than turning the timer red every hour.
+- 2026-08-13 altsoyuz: dogfood found a defect in jalon's own documented convention: the post-merge hook never fired for PR #1 or #4. GitHub composes a squash message from the PR title and the commit messages, and a merge commit message from the title alone; neither carries the PR body, where docs/workflow.md says to put "closes <id>". Verified on the repo: squash_merge_commit_message is COMMIT_MESSAGES. The convention works only if the id is in a commit message, or the repo is set to PR_BODY.
+- 2026-08-13 altsoyuz: closed.
