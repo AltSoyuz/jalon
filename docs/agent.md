@@ -226,6 +226,28 @@ One binary per server, one `scp`. No state outside git and the systemd units:
 the counter file is one line holding an integer, and diagnosis is
 `journalctl -u jalon-agent`, `cat` on that counter, and the last `facts.md`.
 
+**The job updates itself.** The unit pulls and rebuilds before each tick, and
+runs the binary it just built, out of the checkout the agent user owns. There is
+no second copy in `/usr/local/bin` to keep in step, and no `sudo` anywhere in
+the update path: a merge is in production at the next tick.
+
+What you give up is choosing *when* the server changes version. You choose
+*what*, by merging; the deployment follows within the hour. The criterion is
+still the gate — a `main` that compiles but fails its tests blocks the job — and
+`JALON_METRICS` records which stamped version produced which task, because with
+the version moving on its own that is the only way to say afterwards.
+
+Reverting is a `git revert` on `main`, picked up at the next tick, or removing
+the two `ExecStartPre` lines to freeze the deployed version.
+
+There is deliberately **no `jalon update` verb**. It would duplicate `git` and
+`gh`, which are already on the machine, in a hundred and fifty lines of Go with
+a network client, checksum verification and atomic self-replacement — for one
+usage. Releases would also cost a tag per deploy, which is more maintenance, not
+less. The day a target repository has no Go toolchain, the binary cannot be
+built in place and `gh release download` in an `ExecStartPre` is the answer;
+still not a verb.
+
 **jalon emits the setup; it never performs it.**
 
 ```sh
@@ -234,6 +256,10 @@ less setup.sh            # read it
 sh setup.sh              # unprivileged: writes .jalon/agent.toml and says what is next
 sudo sh setup.sh --root  # only after doctor and one real review have passed
 ```
+
+The agent user needs its own clone of the target repository, its own `gh` login
+and its own model credentials: yours live in your home and a system user cannot
+read them. Nothing needs to be installed system wide.
 
 The output is a configuration file, a systemd unit, a timer, and the commands
 that install them. The privileged half is behind an explicit `--root` flag, so
