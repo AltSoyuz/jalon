@@ -184,6 +184,15 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	fmt.Fprintf(&body, "Refs #%d\n", iss.Number)
 	res.PR, _ = createPR(ctx, wt.path, "Task: "+id, body.String())
 
+	// Out of the queue before anything else is reported: the label is the
+	// queue, and an issue left in it is re-measured on the next tick. A failure
+	// here is loud rather than warned, because the consequence is a loop that
+	// spends the daily cap on one issue.
+	if err := unlabel(ctx, wt.path, iss.Number); err != nil {
+		fmt.Fprintf(env.Stderr, "jalon: the review is published but issue #%d still carries the %q label, so the next tick will measure it again: remove it by hand with gh issue edit %d --remove-label %s (%v)\n",
+			iss.Number, LabelMeasure, iss.Number, LabelMeasure, err)
+	}
+
 	fmt.Fprintf(env.Stdout, "%s %s\n", id, res.PR)
 	notify(ctx, env, cfg, fmt.Sprintf("jalon review #%d: %s\n%s", iss.Number, id, res.PR))
 
