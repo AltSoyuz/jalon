@@ -31,6 +31,7 @@ func signalCtx() (context.Context, context.CancelFunc) {
 func cmdDoctor(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("doctor", stderr)
 	dir := dirFlag(fs)
+	live := fs.Bool("live", false, "spend one real model call to prove the model answers; costs money, so it is off by default")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -44,7 +45,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer, m *metric) error {
 	ctx, stop := signalCtx()
 	defer stop()
 
-	report := agent.Doctor(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr})
+	report := agent.Doctor(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr}, agent.Options{Live: *live})
 	m.Checks = len(report.Checks)
 	if n := report.Failed(); n > 0 {
 		return fmt.Errorf("doctor: %d of %d checks failed; the fix for each is on stderr above", n, len(report.Checks))
