@@ -1,0 +1,33 @@
+[agent]
+model_triage           = "claude-haiku-4-5"
+model_review           = "claude-sonnet-5"
+model_work             = "claude-sonnet-5"
+max_budget_usd_per_job = 2.0
+daily_job_cap          = 5
+counter_file           = ".jalon/agent-jobs-today"
+timeout_seconds        = 900
+
+[review]
+default_branch = "{{.Branch}}"
+worktrees      = ".jalon/worktrees"
+
+[criterion]
+# The bar for merge-worthiness. Change this: the generated value is a guess.
+command = "make check"
+
+[probes]
+# The only commands a phase may run. Prefix match, no shell characters.
+allowed = [
+  "jalon digest",
+  "jalon list",
+  "make check",
+  "git log",
+{{- if .Probe}}
+  "{{.Probe}}",
+{{- end}}
+]
+
+# [notify]
+# One command, receiving the message on stdin. Absent, the message goes to
+# stdout, which the journal already records.
+# command = "..."

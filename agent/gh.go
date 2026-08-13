@@ -54,6 +54,37 @@ func (i *issue) text() string {
 		i.Number, i.Title, i.URL, body)
 }
 
+// LabelMeasure is the label triage applies to an issue that needs a measured
+// review, and the one `review -next` picks up. It exists before triage does so
+// that a person can apply it by hand today and the timer has real work.
+const LabelMeasure = "measure"
+
+// nextIssue returns the oldest open issue labelled for review, or 0 when there
+// is none. A timer that finds nothing to do has succeeded, not failed.
+func nextIssue(ctx context.Context, dir string) (int, error) {
+	res, err := run(ctx, runOpts{
+		dir: dir, name: "gh", timeout: 60 * time.Second,
+		args: []string{"issue", "list", "--label", LabelMeasure, "--state", "open",
+			"--json", "number", "--limit", "50"},
+	})
+	if err != nil {
+		return 0, err
+	}
+	var issues []struct {
+		Number int `json:"number"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &issues); err != nil {
+		return 0, fmt.Errorf("gh issue list returned unreadable json: %w", err)
+	}
+	oldest := 0
+	for _, i := range issues {
+		if oldest == 0 || i.Number < oldest {
+			oldest = i.Number
+		}
+	}
+	return oldest, nil
+}
+
 func createPR(ctx context.Context, dir, title, body string) (string, error) {
 	res, err := run(ctx, runOpts{
 		dir: dir, name: "gh", timeout: 2 * time.Minute,

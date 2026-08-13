@@ -1,0 +1,13 @@
+[Unit]
+Description=run the jalon agent job for {{.Name}} hourly
+Documentation=https://github.com/AltSoyuz/jalon/blob/main/docs/agent.md
+
+[Timer]
+OnCalendar=hourly
+# Without this a reboot during the window silently skips the run.
+Persistent=true
+# Two machines on the same hour would otherwise both wake at :00.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

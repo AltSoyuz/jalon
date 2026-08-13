@@ -56,18 +56,24 @@ func cmdReview(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("review", stderr)
 	dir := dirFlag(fs)
 	keep := fs.Bool("keep-worktree", false, "keep the worktree even when the review succeeds, to inspect what the model saw")
+	next := fs.Bool("next", false, "review the oldest open issue labelled "+agent.LabelMeasure+" (what the timer runs)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := checkFlagsAfterArgs(fs); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
-		return errors.New("review: usage: jalon review <issue number>")
-	}
-	issue, err := issueNumber(fs.Arg(0))
-	if err != nil {
-		return fmt.Errorf("review: %w", err)
+	var issue int
+	switch {
+	case *next && fs.NArg() > 0:
+		return errors.New("review: -next picks the issue, so it takes no argument")
+	case !*next && fs.NArg() != 1:
+		return errors.New("review: usage: jalon review <issue number>, or jalon review -next")
+	case !*next:
+		var err error
+		if issue, err = issueNumber(fs.Arg(0)); err != nil {
+			return fmt.Errorf("review: %w", err)
+		}
 	}
 	d, err := resolveDir(*dir)
 	if err != nil {
@@ -77,13 +83,37 @@ func cmdReview(args []string, stdout, stderr io.Writer, m *metric) error {
 	defer stop()
 
 	res, err := agent.Review(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr},
-		agent.ReviewOptions{Issue: issue, TasksDir: d, KeepWorktree: *keep})
+		agent.ReviewOptions{Issue: issue, Next: *next, TasksDir: d, KeepWorktree: *keep})
 	m.ID = res.TaskID
 	if res.Worktree != "" {
 		fmt.Fprintf(stderr, "jalon: the review worktree is kept at %s; read its facts.md, then: git worktree remove --force %s\n",
 			res.Worktree, res.Worktree)
 	}
 	return err
+}
+
+// cmdAgentInit writes the configuration, the systemd unit and the timer to
+// stdout. It installs nothing: the output is meant to be read, then piped to sh
+// or to a file. The privileged half is a marked block a person runs.
+func cmdAgentInit(args []string, stdout, stderr io.Writer, m *metric) error {
+	fs := newFlagSet("agent-init", stderr)
+	repo := fs.String("repo", "", "absolute path of the repository the agent works in")
+	user := fs.String("user", "jalon-agent", "the dedicated system user, which must have no sudo")
+	port := fs.Int("port", 0, "local port of the app to probe, 0 for none")
+	branch := fs.String("branch", "main", "the branch every review worktree is cut from")
+	envFile := fs.String("env-file", "", "absolute path of a machine secrets file the unit reads, 0600 and outside the repository (for a CLAUDE_CODE_OAUTH_TOKEN); jalon references it, never writes it")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkFlagsAfterArgs(fs); err != nil {
+		return err
+	}
+	if err := agent.Init(stdout, version, agent.InitOptions{
+		Repo: *repo, User: *user, Port: *port, Branch: *branch, EnvFile: *envFile,
+	}); err != nil {
+		return fmt.Errorf("agent-init: %w", err)
+	}
+	return nil
 }
 
 func issueNumber(s string) (int, error) {

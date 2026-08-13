@@ -1,0 +1,41 @@
+[Unit]
+Description=jalon agent job for {{.Name}}
+Documentation=https://github.com/AltSoyuz/jalon/blob/main/docs/agent.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{.User}}
+WorkingDirectory={{.Repo}}
+
+# A service does not inherit your shell's PATH, and this is the single most
+# common reason a job that works by hand fails under systemd. Two things are
+# usually missing: claude and gh in a user directory, and the toolchain the
+# criterion needs. Check this line against `command -v` for every binary your
+# criterion and probes actually run.
+Environment=PATH=/home/{{.User}}/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/{{.User}}
+{{- if .EnvFile}}
+
+# Machine secrets, 0600 and owned by root. jalon references this file and never
+# writes it, so the token never passes through a generated script.
+EnvironmentFile={{.EnvFile}}
+{{- end}}
+
+# review runs doctor first and refuses on a red base, so a failure here is a
+# real failure and not a half-finished job.
+ExecStart=/usr/local/bin/jalon review -next
+
+# The job is bounded by max_budget_usd_per_job and timeout_seconds in
+# .jalon/agent.toml; this is the outer bound for a process that ignores both.
+TimeoutStartSec=3600
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths={{.Repo}} /home/{{.User}}
+
+[Install]
+WantedBy=multi-user.target
