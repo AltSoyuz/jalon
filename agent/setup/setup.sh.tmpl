@@ -64,11 +64,24 @@ fi
 
 mkdir -p {{quote .ConfigDir}}
 
-cat > {{quote .Config}} <<'TOML'
+# Written beside an existing file rather than over it. This script tells you to
+# edit the probes, so overwriting the result of that edit on a regeneration
+# would destroy exactly the work it asked for.
+cat > {{quote .Config}}.new <<'TOML'
 {{template "agent.toml.tmpl" .}}
 TOML
 
-echo "wrote {{.Config}}"
+if [ ! -f {{quote .Config}} ]; then
+  mv {{quote .Config}}.new {{quote .Config}}
+  echo "wrote {{.Config}}"
+elif cmp -s {{quote .Config}} {{quote .Config}}.new; then
+  rm -f {{quote .Config}}.new
+  echo "{{.Config}} already matches what this would write"
+else
+  echo "{{.Config}} exists and differs; left {{.Config}}.new beside it." >&2
+  echo "  diff {{.Config}} {{.Config}}.new" >&2
+fi
+
 echo
 echo "Now, in order:"
 echo "  1. \$EDITOR {{.Config}}          the probes are a guess, the criterion may be wrong"

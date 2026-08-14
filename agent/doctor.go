@@ -299,10 +299,22 @@ func gitCheck(ctx context.Context, root string, cfg *Config) Check {
 	// detached worktree branched from the default branch, so uncommitted work
 	// here does not affect it; failing on it would make doctor red for anyone
 	// mid task, and a doctor that is always red gets ignored.
-	if out, err := git(ctx, root, "status", "--porcelain"); err == nil && strings.TrimSpace(out) != "" {
-		n := len(strings.Split(strings.TrimSpace(out), "\n"))
-		return Check{Name: "git", State: Warn, Detail: fmt.Sprintf("%s, %d uncommitted", branch, n),
-			Fix: "the working tree has uncommitted changes; a review is unaffected because it branches its own worktree, but \"git status\" is worth a look"}
+	//
+	// Untracked files do not count at all. The configuration this verb reads is
+	// itself untracked on a machine that does not version it, so counting them
+	// meant warning on every single tick forever, and a warning that is always
+	// on is one nobody reads.
+	if out, err := git(ctx, root, "status", "--porcelain"); err == nil {
+		n := 0
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "??") {
+				n++
+			}
+		}
+		if n > 0 {
+			return Check{Name: "git", State: Warn, Detail: fmt.Sprintf("%s, %d modified", branch, n),
+				Fix: "the working tree has modified tracked files; a review is unaffected because it branches its own worktree from a committed ref, but \"git status\" is worth a look"}
+		}
 	}
 	return Check{Name: "git", State: Ok, Detail: branch + ", clean"}
 }

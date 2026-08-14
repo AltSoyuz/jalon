@@ -289,3 +289,23 @@ func TestInitUnitUpdatesItself(t *testing.T) {
 		t.Errorf("nothing records which version ran:\n%s", unit)
 	}
 }
+
+// The script tells the reader to edit the probes, so a regeneration that
+// overwrote the file would destroy exactly the work it asked for.
+func TestInitNeverOverwritesAnEditedConfig(t *testing.T) {
+	script := emit(t, InitOptions{Repo: "/srv/app", User: "u"})
+
+	// Written beside, then moved only when nothing is there.
+	if !strings.Contains(script, "cat > '.jalon/agent.toml'.new <<'TOML'") {
+		t.Errorf("the config is written directly over the existing one:\n%s", script)
+	}
+	for _, want := range []string{
+		"if [ ! -f '.jalon/agent.toml' ]; then",
+		"cmp -s '.jalon/agent.toml' '.jalon/agent.toml'.new",
+		"left .jalon/agent.toml.new beside it",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the script is missing %q:\n%s", want, script)
+		}
+	}
+}
