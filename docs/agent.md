@@ -95,7 +95,10 @@ the facts facts.
 6. **The skeptic.** A second, separate read-only invocation whose only task is
    to refute the issue's premise with a command. One pass, no loop, no debate.
 7. **Phase 2, the task file.** The model may now write, and writes exactly one
-   thing: the jalon task, ordered measured / contradicted / cost / plan.
+   thing: the jalon task, ordered measured / contradicted / cost / plan. Its
+   file permission is `Edit(.tasks/**)`; a `Write(...)` rule is never matched by
+   Claude Code's checks, so offering one only sends the model down a path that
+   gets denied.
 8. jalon does every mutation itself: commit, push the branch, open the pull
    request. The model is never handed a push.
 
@@ -103,6 +106,11 @@ The result is a pull request containing only the task file, with
 `status: proposed`. That is not a new mechanism: it is the one already
 documented in [`workflow.md`](./workflow.md) for agreeing on a task before
 anyone writes code. Merging **is** the agreement.
+
+Each phase leaves what it printed in `.jalon-review/`, as `facts.md`,
+`skeptic.md` and `task.md`, written before the phase's error is checked. A phase
+whose output is discarded cannot be diagnosed when it fails, and the writing
+phase failed on a real job having created nothing readable at all.
 
 On failure the worktree is kept, and the error names its path and the command
 that removes it. The evidence of what went wrong is the only thing worth having

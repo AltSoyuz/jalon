@@ -130,16 +130,60 @@ func TestReviewToolPolicy(t *testing.T) {
 		t.Errorf("the skeptic must have no write tool:\n%s", skeptic)
 	}
 	// The writing phase may write the task and run jalon, and nothing else.
-	for _, want := range []string{"Bash(jalon new:*)", "Write(.tasks/**)"} {
+	for _, want := range []string{"Bash(jalon new:*)", "Edit(.tasks/**)"} {
 		if !strings.Contains(task, want) {
 			t.Errorf("the task phase is missing %s:\n%s", want, task)
 		}
+	}
+	// A Write rule is never matched by Claude Code's file permission checks, so
+	// offering one sends the model down a path that gets denied. This cost a
+	// real job, which failed having created nothing.
+	if strings.Contains(task, "Write(") {
+		t.Errorf("the task phase offers a Write rule, which is never in force:\n%s", task)
 	}
 	// It is never handed git, gh or a push.
 	for _, forbidden := range []string{"Bash(git", "Bash(gh"} {
 		if strings.Contains(task, forbidden) {
 			t.Errorf("the task phase was handed %s:\n%s", forbidden, task)
 		}
+	}
+}
+
+// A phase whose output is discarded cannot be diagnosed when it fails. This one
+// failed on a real job having created nothing, and the cause was only found by
+// replaying the invocation by hand.
+func TestReviewKeepsWhatTheWritingPhasePrinted(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", `case "$*" in
+*--version*) echo "9.9.9 (Claude Code)" ;;
+*--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
+*jalon-review-facts*)
+  cat <<'FACTS'
+`+factsBlock+`FACTS
+  ;;
+*jalon-review-skeptic*) echo "The premise does not hold." ;;
+*jalon-review-task*) echo "A Write rule was offered, denied, and I stopped." ;;
+esac`)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+
+	res, _, _, err := runReview(t, root)
+	if err == nil {
+		t.Fatal("a writing phase that creates no task must fail the review")
+	}
+	if res.Worktree == "" {
+		t.Fatal("the worktree must be kept, or there is nothing left to read")
+	}
+	saved := filepath.Join(root, ".jalon", "worktrees", "review-42", reviewDir, "task.md")
+	b, rerr := os.ReadFile(saved)
+	if rerr != nil {
+		t.Fatalf("the writing phase output was discarded: %v", rerr)
+	}
+	if !strings.Contains(string(b), "denied") {
+		t.Errorf("task.md does not hold what the phase printed:\n%s", b)
+	}
+	if !strings.Contains(err.Error(), reviewDir+"/task.md") {
+		t.Errorf("the failure does not say where to read it: %v", err)
 	}
 }
 
