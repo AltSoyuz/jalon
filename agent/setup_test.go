@@ -327,7 +327,7 @@ func TestInitNamesTheUnitAfterTheTarget(t *testing.T) {
 		}
 	}
 	// The two must not collide anywhere, including in the revert instruction.
-	if strings.Contains(a, "jalon-agent-jalon") || strings.Contains(b, "altsoyuz") {
+	if strings.Contains(a, "jalon-agent-jalon") || strings.Contains(b, "site.example") {
 		t.Error("the two targets share a unit name")
 	}
 	if !strings.Contains(b, "systemctl disable --now jalon-agent-jalon.timer") {
