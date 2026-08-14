@@ -343,3 +343,44 @@ func TestInitSanitisesTheUnitName(t *testing.T) {
 		t.Errorf("the unit name was not sanitised:\n%s", s)
 	}
 }
+
+// The jalon checkout and the target are the same repository only when the
+// target happens to be jalon. Every other target has no Makefile of ours and no
+// bin/jalon, so a unit that pulled and built the target would fail at every
+// tick with a fatal ExecStartPre.
+func TestInitBuildsJalonNotTheTarget(t *testing.T) {
+	script := emit(t, InitOptions{
+		Repo: "/home/agent/altsoyuz.com", Jalon: "/home/agent/jalon", User: "u",
+	})
+	unit := heredoc(t, script, ".service <<'UNIT'", "UNIT")
+
+	for _, want := range []string{
+		"ExecStartPre=-/usr/bin/git -C /home/agent/jalon pull --ff-only",
+		"ExecStartPre=/usr/bin/make -C /home/agent/jalon build",
+		"ExecStart=/home/agent/jalon/bin/jalon review -next",
+		"Environment=PATH=/home/agent/jalon/bin:",
+		// The job writes in the target and builds in the jalon checkout.
+		"ReadWritePaths=/home/agent/altsoyuz.com /home/agent/jalon",
+	} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("the unit is missing %q:\n%s", want, unit)
+		}
+	}
+	// The target is where the work happens, and nothing builds it.
+	if strings.Contains(unit, "make -C /home/agent/altsoyuz.com") {
+		t.Errorf("the unit tries to build the target:\n%s", unit)
+	}
+	if !strings.Contains(unit, "WorkingDirectory=/home/agent/altsoyuz.com") {
+		t.Errorf("the job does not run in the target:\n%s", unit)
+	}
+}
+
+// Defaulting to the target keeps the single-target case a one-liner, and it is
+// correct exactly when the target is jalon.
+func TestInitDefaultsJalonToTheTarget(t *testing.T) {
+	unit := heredoc(t, emit(t, InitOptions{Repo: "/home/agent/jalon", User: "u"}),
+		".service <<'UNIT'", "UNIT")
+	if !strings.Contains(unit, "ExecStart=/home/agent/jalon/bin/jalon review -next") {
+		t.Errorf("the default did not fall back to the target:\n%s", unit)
+	}
+}

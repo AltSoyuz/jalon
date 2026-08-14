@@ -102,6 +102,7 @@ func cmdAgentInit(args []string, stdout, stderr io.Writer, m *metric) error {
 	user := fs.String("user", "jalon-agent", "the dedicated system user, which must have no sudo")
 	port := fs.Int("port", 0, "local port of the app to probe, 0 for none")
 	branch := fs.String("branch", "main", "the branch every review worktree is cut from")
+	jalonRepo := fs.String("jalon", "", "absolute path of the jalon checkout the unit pulls, builds and runs (default: the target, which is only right when the target is jalon itself)")
 	envFile := fs.String("env-file", "", "absolute path of a machine secrets file the unit reads, 0600 and outside the repository (for a CLAUDE_CODE_OAUTH_TOKEN); jalon references it, never writes it")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -110,7 +111,7 @@ func cmdAgentInit(args []string, stdout, stderr io.Writer, m *metric) error {
 		return err
 	}
 	if err := agent.Init(stdout, version, agent.InitOptions{
-		Repo: *repo, User: *user, Port: *port, Branch: *branch, EnvFile: *envFile,
+		Repo: *repo, User: *user, Port: *port, Branch: *branch, Jalon: *jalonRepo, EnvFile: *envFile,
 	}); err != nil {
 		return fmt.Errorf("agent-init: %w", err)
 	}

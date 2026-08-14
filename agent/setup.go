@@ -37,6 +37,10 @@ type InitOptions struct {
 	User   string // the dedicated system user the job runs as
 	Port   int    // the local port of the app to probe, 0 for none
 	Branch string
+	// Jalon is the jalon checkout the unit pulls, builds and runs. It is only
+	// the same as Repo when the target happens to be jalon itself: every other
+	// target has no Makefile of ours and no bin/jalon.
+	Jalon string
 	// EnvFile is an optional machine secrets file the unit reads, for the case
 	// where the model credentials are a token rather than a stored login.
 	// jalon references it and never writes it: the secret stays yours.
@@ -63,6 +67,12 @@ func (o *InitOptions) validate() error {
 		if strings.HasPrefix(filepath.Clean(o.EnvFile)+string(filepath.Separator), filepath.Clean(o.Repo)+string(filepath.Separator)) {
 			return fmt.Errorf("-env-file %q is inside the repository: a secret there is one commit away from being published, put it under /etc", o.EnvFile)
 		}
+	}
+	if o.Jalon == "" {
+		o.Jalon = o.Repo
+	}
+	if !filepath.IsAbs(o.Jalon) {
+		return fmt.Errorf("-jalon %q must be absolute: it is where the unit pulls and builds jalon itself", o.Jalon)
 	}
 	if o.Branch == "" {
 		o.Branch = "main"
