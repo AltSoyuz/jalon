@@ -84,6 +84,7 @@ func Init(w io.Writer, version string, opt InitOptions) error {
 		InitOptions
 		Version   string
 		Name      string
+		Unit      string
 		ConfigDir string
 		Config    string
 		Probe     string
@@ -91,13 +92,31 @@ func Init(w io.Writer, version string, opt InitOptions) error {
 		InitOptions: opt,
 		Version:     version,
 		Name:        filepath.Base(opt.Repo),
-		ConfigDir:   configDir,
-		Config:      filepath.Join(configDir, configName),
+		// One unit per target. The name used to be fixed, so setting up a
+		// second repository silently replaced the first one's unit.
+		Unit:      "jalon-agent-" + unitSafe(filepath.Base(opt.Repo)),
+		ConfigDir: configDir,
+		Config:    filepath.Join(configDir, configName),
 	}
 	if opt.Port > 0 {
 		data.Probe = fmt.Sprintf("curl -s http://localhost:%d/healthz", opt.Port)
 	}
 	return tmpl.ExecuteTemplate(w, "setup.sh.tmpl", data)
+}
+
+// unitSafe keeps only what systemd accepts in a unit name, so a repository
+// directory cannot produce a unit that will not load.
+func unitSafe(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 // quote is available to the templates so a path with a space cannot split a
