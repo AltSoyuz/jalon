@@ -148,18 +148,29 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	if err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
-	if _, err := runPhase(ctx, cfg, wt.path, phase{
+	// Edit(.tasks/**) and no Write rule: Claude Code matches file permissions
+	// against Edit rules only, and covers every file-editing tool with them. A
+	// Write rule is never in force, and offering one makes the model try a path
+	// that gets denied.
+	written, err := runPhase(ctx, cfg, wt.path, phase{
 		name:  "task",
 		skill: "jalon-review-task",
 		tools: []string{"Read", "Grep", "Glob", "Write", "Edit", "Bash"},
 		allow: []string{"Bash(jalon new:*)", "Bash(jalon append:*)", "Bash(jalon list:*)",
-			"Read", "Grep", "Glob", "Write(.tasks/**)", "Edit(.tasks/**)"},
+			"Read", "Grep", "Glob", "Edit(.tasks/**)"},
 		stdin: iss.text() +
 			"\n--- facts start ---\n" + facts + "\n--- facts end ---\n" +
 			"\n--- skeptic start ---\n" + skeptic + "\n--- skeptic end ---\n",
 		prompt: "Write one jalon task from the issue, the facts and the skeptic's answer on stdin, " +
 			"following the jalon-review-task method. Measured facts first, the plan last.",
-	}); err != nil {
+	})
+	// Written before the error is checked, like the facts. This phase failed on
+	// a real job and left nothing to read, so the cause stayed hidden until the
+	// invocation was replayed by hand.
+	if werr := os.WriteFile(filepath.Join(wt.path, reviewDir, "task.md"), []byte(written), 0o644); werr != nil {
+		return keep(fmt.Errorf("review: %w", werr))
+	}
+	if err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
 
@@ -340,7 +351,7 @@ func newTaskID(root string, before map[string]bool) (string, error) {
 	case 1:
 		return added[0], nil
 	case 0:
-		return "", errors.New("the writing phase created no task file; it was told to run jalon new and did not")
+		return "", fmt.Errorf("the writing phase created no task file; it was told to run jalon new and did not, and what it printed instead is in %s/task.md", reviewDir)
 	default:
 		return "", fmt.Errorf("the writing phase created %d task files (%s); one coherent deliverable is one task",
 			len(added), strings.Join(added, ", "))

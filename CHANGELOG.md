@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check on every tick would be a standing bill. Everything else doctor checks
   establishes that a binary exists and takes the right flags, which does not
   catch an expired token.
+- `jalon review` keeps what its writing phase printed, in `.jalon-review/task.md`
+  beside the facts and the skeptic, written before the phase's error is checked.
+  That phase used to be handed a `Write(.tasks/**)` permission, which Claude Code
+  never matches against file permission checks, so the model would try it, be
+  denied and sometimes give up; the run then failed having discarded the only
+  evidence of why. The rule is gone, `Edit(.tasks/**)` already covered it, and a
+  failure now names the file to read.
 
 - First working version: the `new`, `append`, `digest`, `compact`, `render` and
   `close` verbs over `.tasks/*.md`, with no external dependency.
