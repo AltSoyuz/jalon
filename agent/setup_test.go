@@ -110,7 +110,7 @@ func TestInitKeepsRootWorkBehindAFlag(t *testing.T) {
 		}
 	}
 	// And the way back out is stated, because every change must be reversible.
-	if !strings.Contains(script, "systemctl disable --now jalon-agent.timer") {
+	if !strings.Contains(script, "systemctl disable --now jalon-agent-app.timer") {
 		t.Errorf("the script does not say how to undo itself:\n%s", script)
 	}
 }
@@ -119,7 +119,7 @@ func TestInitKeepsRootWorkBehindAFlag(t *testing.T) {
 // the most common reason a job that works by hand fails under systemd.
 func TestInitUnitCarriesPathAndUser(t *testing.T) {
 	script := emit(t, InitOptions{Repo: "/srv/app", User: "agentuser"})
-	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+	unit := heredoc(t, script, ".service <<'UNIT'", "UNIT")
 
 	for _, want := range []string{
 		"User=agentuser",
@@ -169,7 +169,7 @@ func TestInitRefusals(t *testing.T) {
 // a job that works by hand fails under systemd.
 func TestInitUnitPathCoversTheToolchain(t *testing.T) {
 	script := emit(t, InitOptions{Repo: "/srv/app", User: "agentuser"})
-	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+	unit := heredoc(t, script, ".service <<'UNIT'", "UNIT")
 
 	var path string
 	for _, line := range strings.Split(unit, "\n") {
@@ -196,7 +196,7 @@ func TestInitUnitPathCoversTheToolchain(t *testing.T) {
 func TestInitEnvFileIsReferencedNotWritten(t *testing.T) {
 	script := emit(t, InitOptions{Repo: "/srv/app", User: "u", EnvFile: "/etc/jalon-agent.env"})
 
-	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+	unit := heredoc(t, script, ".service <<'UNIT'", "UNIT")
 	if !strings.Contains(unit, "EnvironmentFile=/etc/jalon-agent.env") {
 		t.Errorf("the unit does not read the secrets file:\n%s", unit)
 	}
@@ -259,7 +259,7 @@ func TestInitSetsAGitIdentity(t *testing.T) {
 // would have duplicated gh and git in Go for one usage.
 func TestInitUnitUpdatesItself(t *testing.T) {
 	script := emit(t, InitOptions{Repo: "/srv/app", User: "u"})
-	unit := heredoc(t, script, "jalon-agent.service <<'UNIT'", "UNIT")
+	unit := heredoc(t, script, ".service <<'UNIT'", "UNIT")
 
 	// A network blip must not fail the tick hourly, so the pull carries the
 	// systemd "ignore failure" prefix; the build must not, because code that
@@ -307,5 +307,39 @@ func TestInitNeverOverwritesAnEditedConfig(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Errorf("the script is missing %q:\n%s", want, script)
 		}
+	}
+}
+
+// One unit per target. The name was fixed, so setting up a second repository
+// silently replaced the first one's unit: on a machine already running a timer,
+// the root block would have swapped the target out from under it.
+func TestInitNamesTheUnitAfterTheTarget(t *testing.T) {
+	a := emit(t, InitOptions{Repo: "/home/agent/site.example", User: "u"})
+	b := emit(t, InitOptions{Repo: "/home/agent/jalon", User: "u"})
+
+	for _, want := range []string{
+		"/etc/systemd/system/jalon-agent-site.example.service",
+		"/etc/systemd/system/jalon-agent-site.example.timer",
+		"systemctl enable --now jalon-agent-site.example.timer",
+	} {
+		if !strings.Contains(a, want) {
+			t.Errorf("the setup does not name the unit after the target (%q):\n%s", want, a)
+		}
+	}
+	// The two must not collide anywhere, including in the revert instruction.
+	if strings.Contains(a, "jalon-agent-jalon") || strings.Contains(b, "altsoyuz") {
+		t.Error("the two targets share a unit name")
+	}
+	if !strings.Contains(b, "systemctl disable --now jalon-agent-jalon.timer") {
+		t.Errorf("the revert instruction does not name this target's unit:\n%s", b)
+	}
+}
+
+// A directory name is not a unit name: anything systemd will not load has to be
+// replaced rather than emitted and discovered at install time.
+func TestInitSanitisesTheUnitName(t *testing.T) {
+	s := emit(t, InitOptions{Repo: "/srv/my app (old)", User: "u"})
+	if !strings.Contains(s, "jalon-agent-my-app--old-.service") {
+		t.Errorf("the unit name was not sanitised:\n%s", s)
 	}
 }

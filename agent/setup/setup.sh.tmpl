@@ -34,18 +34,18 @@ if [ "${1-}" = "--root" ]; then
   fi
 {{- end}}
 
-  cat > /etc/systemd/system/jalon-agent.service <<'UNIT'
+  cat > /etc/systemd/system/{{.Unit}}.service <<'UNIT'
 {{template "jalon-agent.service.tmpl" .}}
 UNIT
 
-  cat > /etc/systemd/system/jalon-agent.timer <<'UNIT'
+  cat > /etc/systemd/system/{{.Unit}}.timer <<'UNIT'
 {{template "jalon-agent.timer.tmpl" .}}
 UNIT
 
   systemctl daemon-reload
-  systemctl enable --now jalon-agent.timer
+  systemctl enable --now {{.Unit}}.timer
   echo "installed. next runs:"
-  systemctl list-timers jalon-agent.timer --no-pager
+  systemctl list-timers {{.Unit}}.timer --no-pager
   exit 0
 fi
 
@@ -93,4 +93,4 @@ echo "  sudo sh $0 --root"
 echo
 echo "The agent user needs its own model credentials; yours live in your home"
 echo "and it cannot read them. As $USER, run: claude setup-token"
-echo "Reverting: systemctl disable --now jalon-agent.timer && rm /etc/systemd/system/jalon-agent.*"
+echo "Reverting: systemctl disable --now {{.Unit}}.timer && rm /etc/systemd/system/{{.Unit}}.*"
