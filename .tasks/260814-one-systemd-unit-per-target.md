@@ -14,5 +14,5 @@ links: []
 
 ## Log
 
-- 2026-08-14 altsoyuz: found while adding site.example as a second target on a server already running jalon, before the root block was executed. The directory name is sanitised, since a name systemd refuses to load would only be discovered at install time.
+- 2026-08-14 altsoyuz: found while adding a second target on a server already running a job, before the root block was executed. The directory name is sanitised, since a name systemd refuses to load would only be discovered at install time.
 - 2026-08-14 altsoyuz: closed.

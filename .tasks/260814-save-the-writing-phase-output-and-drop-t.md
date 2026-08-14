@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-14
 links: []
 ---
@@ -15,5 +15,6 @@ links: []
 
 ## Log
 
-- 2026-08-14 altsoyuz: found on the first real job, review 3 on site.example: the phase created no task file and exited 1 with no trace of why; a hand replay of the same invocation printed the permission warning and then succeeded, so the failure is non deterministic
+- 2026-08-14 altsoyuz: found on the first real job run against a live site: the phase created no task file and exited 1 with no trace of why; a hand replay of the same invocation printed the permission warning and then succeeded, so the failure is non deterministic
 - 2026-08-14 altsoyuz: the skeptic phase still writes its output after its error is checked, unlike the facts and now the task; left alone deliberately, it is a separate one line change and this task is the writing phase
+- 2026-08-14 altsoyuz: closed.
