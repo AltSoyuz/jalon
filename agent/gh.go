@@ -85,6 +85,17 @@ func nextIssue(ctx context.Context, dir string) (int, error) {
 	return oldest, nil
 }
 
+// unlabel takes the issue out of the queue. The label is the queue, so a job
+// that finishes and leaves it in place is a job that runs again on the next
+// tick, forever: the timer would spend the daily cap re-measuring one issue.
+func unlabel(ctx context.Context, dir string, number int) error {
+	_, err := run(ctx, runOpts{
+		dir: dir, name: "gh", timeout: 60 * time.Second,
+		args: []string{"issue", "edit", fmt.Sprint(number), "--remove-label", LabelMeasure},
+	})
+	return err
+}
+
 func createPR(ctx context.Context, dir, title, body string) (string, error) {
 	res, err := run(ctx, runOpts{
 		dir: dir, name: "gh", timeout: 2 * time.Minute,

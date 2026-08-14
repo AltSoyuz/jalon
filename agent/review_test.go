@@ -450,6 +450,7 @@ func TestReviewNextTakesTheOldest(t *testing.T) {
 "issue list")  printf '[{"number":42},{"number":7},{"number":19}]' ;;
 "issue view")  printf '{"number":7,"title":"oldest","body":"b","url":"u","state":"OPEN"}' ;;
 "pr create")   echo "https://example.invalid/pull/1" ;;
+"issue edit")  echo "edited" ;;
 esac`)
 	root := newRepo(t, reviewTOML)
 
@@ -464,4 +465,51 @@ esac`)
 		}
 	}
 	t.Errorf("want issue 7 reviewed, got calls:\n%s", strings.Join(s.of(t, "gh"), "\n"))
+}
+
+// The label is the queue. A finished review that leaves it in place is measured
+// again on the next tick, forever: on an hourly timer that spends the whole
+// daily cap re-reviewing one issue. Found live, with two near identical tasks
+// produced from one issue before the timer was even armed.
+func TestReviewLeavesTheQueueWhenItIsDone(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+
+	if _, _, _, err := runReview(t, root); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "issue edit 42 --remove-label "+LabelMeasure) {
+			return
+		}
+	}
+	t.Errorf("the issue was never taken out of the queue:\n%s", strings.Join(s.of(t, "gh"), "\n"))
+}
+
+// If the label cannot be removed the work is still published, but the next tick
+// will repeat it, so the message has to say so and give the manual command.
+func TestReviewSaysWhenItCannotLeaveTheQueue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", `case "$1 $2" in
+"auth status") echo "Logged in" ;;
+"api -i")      echo "X-Oauth-Scopes: repo" ;;
+"issue view")  printf '{"number":42,"title":"t","body":"b","url":"u","state":"OPEN"}' ;;
+"pr create")   echo "https://example.invalid/pull/7" ;;
+"issue edit")  echo "no permission" >&2; exit 1 ;;
+esac`)
+	root := newRepo(t, reviewTOML)
+
+	res, _, errb, err := runReview(t, root)
+	if err != nil {
+		t.Fatalf("a label failure must not lose the published work: %v", err)
+	}
+	if res.PR == "" {
+		t.Error("the pull request was not reported")
+	}
+	if !strings.Contains(errb, "measure it again") || !strings.Contains(errb, "--remove-label") {
+		t.Errorf("the warning must name the consequence and the manual fix:\n%s", errb)
+	}
 }

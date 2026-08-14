@@ -156,6 +156,7 @@ const happyGH = `case "$1 $2" in
 "api -i")      echo "X-Oauth-Scopes: repo, read:org" ;;
 "issue view")  printf '{"number":42,"title":"health is slow","body":"it feels slow","url":"https://example.invalid/42","state":"OPEN"}' ;;
 "pr create")   echo "https://example.invalid/pull/7" ;;
+"issue edit")  echo "edited" ;;
 *) echo "unexpected gh: $*" >&2; exit 1 ;;
 esac`
 
