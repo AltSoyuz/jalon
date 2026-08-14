@@ -173,11 +173,14 @@ func TestDoctorDirtyTreeIsAWarning(t *testing.T) {
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
 	root := newRepo(t, doctorTOML)
-	mustWrite(t, root+"/dirty.txt", "uncommitted")
+	mustWrite(t, root+"/README.md", "changed")
+	mustGit(t, root, "add", "README.md")
+	mustGit(t, root, "commit", "-q", "-m", "add a tracked file")
+	mustWrite(t, root+"/README.md", "changed again")
 
 	r, _, _ := runDoctor(t, root)
 	if got := state(t, r, "git").State; got != Warn {
-		t.Errorf("git = %s, want warn on a dirty tree", got)
+		t.Errorf("git = %s, want warn on a modified tracked file", got)
 	}
 	if r.Failed() != 0 {
 		t.Errorf("a dirty tree must not fail doctor, failed = %d", r.Failed())
@@ -377,5 +380,22 @@ func TestReviewNeverSpendsTheLiveCheck(t *testing.T) {
 	Doctor(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb}, Options{})
 	if strings.Contains(out.String(), "ok    model") {
 		t.Error("the default preflight ran the live check")
+	}
+}
+
+// The configuration this verb reads is itself untracked on a machine that does
+// not version it, so counting untracked files warned on every tick forever. A
+// warning that is always on is one nobody reads, which is the same reasoning
+// that made a dirty tree a warning rather than a failure.
+func TestDoctorIgnoresUntrackedFiles(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, doctorTOML) // writes an untracked .jalon/agent.toml
+
+	r, _, _ := runDoctor(t, root)
+	c := state(t, r, "git")
+	if c.State != Ok {
+		t.Fatalf("git = %s (%s), want ok: only untracked files are present", c.State, c.Detail)
 	}
 }
