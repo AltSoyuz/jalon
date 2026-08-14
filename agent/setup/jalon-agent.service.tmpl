@@ -14,7 +14,7 @@ WorkingDirectory={{.Repo}}
 # usually missing: claude and gh in a user directory, and the toolchain the
 # criterion needs. Check this line against `command -v` for every binary your
 # criterion and probes actually run.
-Environment=PATH={{.Repo}}/bin:/home/{{.User}}/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH={{.Jalon}}/bin:/home/{{.User}}/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/{{.User}}
 
 # One JSONL line per invocation, carrying the stamped version. With the job
@@ -28,8 +28,9 @@ Environment=JALON_METRICS=/home/{{.User}}/jalon-metrics.jsonl
 EnvironmentFile={{.EnvFile}}
 {{- end}}
 
-# The job updates itself, so a merge is in production at the next tick and there
-# is no second copy of the binary to keep in step with the checkout. What you
+# The job updates itself from the jalon checkout, which is not the target unless
+# the target happens to be jalon. A merge is in production at the next tick and
+# there is no second copy of the binary to keep in step. What you
 # give up is choosing when the server changes version: you choose what, by
 # merging, and the deployment follows within the hour.
 #
@@ -40,13 +41,13 @@ EnvironmentFile={{.EnvFile}}
 #
 # Absolute paths are required by systemd; check them against `command -v git
 # make` if this is not Debian.
-ExecStartPre=-/usr/bin/git -C {{.Repo}} pull --ff-only
-ExecStartPre=/usr/bin/make -C {{.Repo}} build
+ExecStartPre=-/usr/bin/git -C {{.Jalon}} pull --ff-only
+ExecStartPre=/usr/bin/make -C {{.Jalon}} build
 
 # review runs doctor first and refuses on a red base, so a failure here is a
 # real failure and not a half-finished job. The criterion is still the gate: a
 # main that compiles but fails its tests blocks the job.
-ExecStart={{.Repo}}/bin/jalon review -next
+ExecStart={{.Jalon}}/bin/jalon review -next
 
 # The job is bounded by max_budget_usd_per_job and timeout_seconds in
 # .jalon/agent.toml; this is the outer bound for a process that ignores both.
@@ -56,7 +57,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths={{.Repo}} /home/{{.User}}
+ReadWritePaths={{.Repo}} {{.Jalon}} /home/{{.User}}
 
 [Install]
 WantedBy=multi-user.target

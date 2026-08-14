@@ -251,7 +251,10 @@ still not a verb.
 **jalon emits the setup; it never performs it.**
 
 ```sh
-jalon agent-init -repo /srv/app -user jalon-agent -port 8080 > setup.sh
+# -repo is the target the agent works in; -jalon is the checkout the unit pulls,
+# builds and runs. They differ for every target except jalon itself.
+jalon agent-init -repo /srv/app -jalon /home/jalon-agent/jalon \
+                 -user jalon-agent -port 8080 > setup.sh
 less setup.sh            # read it
 sh setup.sh              # unprivileged: writes .jalon/agent.toml and says what is next
 sudo sh setup.sh --root  # only after doctor and one real review have passed
