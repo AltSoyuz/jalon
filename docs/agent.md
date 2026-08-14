@@ -277,8 +277,19 @@ sixty lines, is inspectable before it runs, and `diff`s against what is
 deployed.
 
 The timer runs `jalon review -next`: the oldest open issue labelled `measure`.
-Nothing labelled is a success, not a failure, so an idle queue does not turn
-the unit red every hour. Until `jalon triage` exists, apply that label by hand.
+Nothing labelled is a success, not a failure, so an idle queue does not turn the
+unit red every hour. Until `jalon triage` exists, apply that label by hand.
+
+**The label is the queue, and a finished review removes it.** Without that the
+same issue is measured again on the next tick, forever, spending the daily cap
+on one question — which is exactly what happened here before the timer was even
+armed: one issue, two near-identical task proposals. If the label cannot be
+removed the work is still published, and the message says so and gives the
+command, because the alternative is a silent loop.
+
+A failed review keeps its label and its worktree. That is deliberate: the stale
+worktree makes `doctor` refuse the next job, so a repeatedly failing issue stops
+the timer instead of retrying hourly.
 
 Two things the runbook will remind you of, because both are easy to miss:
 
