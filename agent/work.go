@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type WorkOptions struct {
@@ -18,7 +19,8 @@ type WorkOptions struct {
 type WorkResult struct {
 	TaskID   string
 	PR       string
-	Worktree string // set only when the worktree was kept, for inspection
+	Cost     float64 // USD; -1 when the phase did not report it
+	Worktree string  // set only when the worktree was kept, for inspection
 }
 
 // workDir holds what the phase printed, inside the worktree, beside the code it
@@ -119,7 +121,7 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	//
 	// Edit and not Write: Claude Code matches file permissions against Edit rules
 	// only, and one Edit rule covers every file-editing tool.
-	written, perr := runPhase(ctx, cfg, wt.path, phase{
+	phaseRes, perr := runPhase(ctx, cfg, wt.path, phase{
 		name:  "work",
 		skill: "jalon-work",
 		tools: []string{"Read", "Grep", "Glob", "Write", "Edit", "Bash"},
@@ -129,7 +131,8 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 		prompt: "Implement the task on stdin, following the jalon-work method. " +
 			"Change nothing the task did not ask for, and make the criterion pass.",
 	})
-	if werr := os.WriteFile(filepath.Join(wt.path, workDir, "work.md"), []byte(written), 0o644); werr != nil {
+	res.Cost = phaseRes.cost
+	if werr := os.WriteFile(filepath.Join(wt.path, workDir, "work.md"), []byte(phaseRes.out), 0o644); werr != nil {
 		return keep(fmt.Errorf("work: %w", werr))
 	}
 	if perr != nil {
@@ -149,7 +152,8 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 
 	// The gate, and the whole gate. No judgement on what the model wrote: the
 	// repository's own command decides.
-	if err := runCriterion(ctx, cfg, wt.path); err != nil {
+	verdict, err := runCriterion(ctx, cfg, wt.path)
+	if err != nil {
 		return keep(fmt.Errorf("work: %w; the %d changed file(s) are in the worktree for you to read", err, len(changed)))
 	}
 
@@ -160,8 +164,11 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 		return keep(fmt.Errorf("work: %w", err))
 	}
 
-	body := fmt.Sprintf("Implementation of `%s`, written by `jalon work`.\n\nThe criterion `%s` passed on this branch before the pull request existed. That is the only thing it proves: read the diff.\n\nFiles changed: %d\n",
-		opt.TaskID, cfg.Criterion, len(changed))
+	// The body is what a person reads on a phone in the morning, so it is
+	// ordered the way the digest is: the task first, then what changed, then
+	// what the criterion said, then what it cost. Nothing here is a new
+	// mechanism: the digest is the core's verb, run in the worktree.
+	body := prBody(ctx, wt, opt.TaskID, cfg, len(changed), verdict, res.Cost)
 	// The forge's own mechanism does the closing: a merged pull request saying
 	// this closes the issue. jalon carries the number and nothing else, so there
 	// is no polling and no state to reconcile. A task written by hand carries no
@@ -182,7 +189,7 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	}
 
 	fmt.Fprintf(env.Stdout, "%s %s\n", opt.TaskID, res.PR)
-	notify(ctx, env, cfg, fmt.Sprintf("jalon work %s: %s", opt.TaskID, res.PR))
+	notify(ctx, env, cfg, fmt.Sprintf("jalon work %s: %s\ncost %s", opt.TaskID, res.PR, formatCost(res.Cost)))
 
 	if opt.KeepWorktree {
 		res.Worktree = wt.rel
@@ -296,16 +303,44 @@ func changedFiles(ctx context.Context, wt *worktree) ([]string, error) {
 	return files, nil
 }
 
-// runCriterion runs the repository's own command, the same way doctor does.
-func runCriterion(ctx context.Context, cfg *Config, dir string) error {
+// runCriterion runs the repository's own command, the same way doctor does,
+// and returns its last line on success: a test runner's verdict is there, and
+// the pull request body quotes it.
+func runCriterion(ctx context.Context, cfg *Config, dir string) (string, error) {
 	res, err := run(ctx, runOpts{
 		dir: dir, name: "sh", args: []string{"-c", cfg.Criterion},
 		timeout: cfg.Agent.Timeout, maxOut: 1 << 20,
 	})
 	if err != nil {
-		return fmt.Errorf("the criterion %q failed, so this work does not get a pull request: %s", cfg.Criterion, lastLines(res.stderr+res.stdout, 12))
+		return "", fmt.Errorf("the criterion %q failed, so this work does not get a pull request: %s", cfg.Criterion, lastLines(res.stderr+res.stdout, 12))
 	}
-	return nil
+	return strings.TrimSpace(lastLines(res.stdout+res.stderr, 1)), nil
+}
+
+// prBody composes the pull request body from what already exists: the core's
+// digest of the task, git's own summary of the change, the criterion's last
+// line and the cost. A digest that cannot be produced is said, not hidden,
+// because a body that silently lost its first section would read as a task
+// with no context.
+func prBody(ctx context.Context, wt *worktree, id string, cfg *Config, files int, verdict string, cost float64) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Implementation of `%s`, written by `jalon work`. Read the diff; the criterion proves only what it proves.\n\n", id)
+
+	digest, err := run(ctx, runOpts{dir: wt.path, name: "jalon", args: []string{"digest", "-offline", id}, timeout: 60 * time.Second, maxOut: 32 << 10})
+	if err != nil {
+		fmt.Fprintf(&b, "(digest unavailable: %v)\n\n", err)
+	} else {
+		fmt.Fprintf(&b, "<details><summary>Task digest</summary>\n\n%s\n</details>\n\n", strings.TrimSpace(digest.stdout))
+	}
+
+	stat, serr := git(ctx, wt.path, "diff", "--stat", "HEAD~1")
+	if serr != nil {
+		fmt.Fprintf(&b, "Files changed: %d (diff --stat unavailable: %v)\n\n", files, serr)
+	} else {
+		fmt.Fprintf(&b, "```\n%s\n```\n\n", stat)
+	}
+	fmt.Fprintf(&b, "Criterion `%s`: passed on this branch before the pull request existed; last line: `%s`\n\nCost: %s\n", cfg.Criterion, verdict, formatCost(cost))
+	return b.String()
 }
 
 // lastLines keeps the tail of a failing command, which is where a test runner
