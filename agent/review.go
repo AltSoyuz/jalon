@@ -43,7 +43,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// away. nextIssue needs the root and nothing Doctor produces, so the order
 	// costs nothing to invert.
 	if opt.Next {
-		n, err := nextIssue(ctx, env.Root)
+		n, err := nextIssue(ctx, env.Root, LabelMeasure)
 		if err != nil {
 			// gh is the one thing this path needs before the preflight has had
 			// a chance to diagnose it, so point at the verb that will.
@@ -211,7 +211,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// queue, and an issue left in it is re-measured on the next tick. A failure
 	// here is loud rather than warned, because the consequence is a loop that
 	// spends the daily cap on one issue.
-	if err := unlabel(ctx, wt.path, iss.Number); err != nil {
+	if err := unlabel(ctx, wt.path, iss.Number, LabelMeasure); err != nil {
 		fmt.Fprintf(env.Stderr, "jalon: the review is published but issue #%d still carries the %q label, so the next tick will measure it again: remove it by hand with gh issue edit %d --remove-label %s (%v)\n",
 			iss.Number, LabelMeasure, iss.Number, LabelMeasure, err)
 	}

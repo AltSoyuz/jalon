@@ -97,29 +97,37 @@ func cmdWork(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("work", stderr)
 	dir := dirFlag(fs)
 	keep := fs.Bool("keep-worktree", false, "keep the worktree even when the work succeeds, to inspect what the model saw")
+	next := fs.Bool("next", false, "implement the task named by the oldest open issue labelled "+agent.LabelImplement+" (what the timer runs)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := checkFlagsAfterArgs(fs); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
-		return errors.New("work: usage: jalon work <task id>; the task is the agreement, so there is no -next and no issue number")
+	switch {
+	case *next && fs.NArg() > 0:
+		return errors.New("work: -next picks the task, so it takes no argument")
+	case !*next && fs.NArg() != 1:
+		return errors.New("work: usage: jalon work <task id>, or jalon work -next")
 	}
 	d, err := resolveDir(*dir)
 	if err != nil {
 		return err
 	}
-	// The same resolution every other verb uses, so a prefix works here too.
-	t, err := resolveTask(d, fs.Arg(0))
-	if err != nil {
-		return fmt.Errorf("work: %w", err)
+	var id string
+	if !*next {
+		// The same resolution every other verb uses, so a prefix works here too.
+		t, terr := resolveTask(d, fs.Arg(0))
+		if terr != nil {
+			return fmt.Errorf("work: %w", terr)
+		}
+		id = t.ID
 	}
 	ctx, stop := signalCtx()
 	defer stop()
 
 	res, err := agent.Work(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr},
-		agent.WorkOptions{TaskID: t.ID, KeepWorktree: *keep})
+		agent.WorkOptions{TaskID: id, Next: *next, KeepWorktree: *keep})
 	m.ID = res.TaskID
 	if res.Worktree != "" {
 		fmt.Fprintf(stderr, "jalon: the work worktree is kept at %s; read its diff and .jalon-work/work.md, then: git worktree remove --force %s\n",

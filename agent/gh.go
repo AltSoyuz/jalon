@@ -54,17 +54,26 @@ func (i *issue) text() string {
 		i.Number, i.Title, i.URL, body)
 }
 
-// LabelMeasure is the label triage applies to an issue that needs a measured
-// review, and the one `review -next` picks up. It exists before triage does so
-// that a person can apply it by hand today and the timer has real work.
-const LabelMeasure = "measure"
+// The labels are the queues, and they are the whole remote control: a person
+// with a phone and the forge's app can drive both stages without a shell, a key
+// or a network to reach the server on.
+const (
+	// LabelMeasure marks an issue that needs a measured review, and is what
+	// `review -next` picks up. It exists before triage does so that a person can
+	// apply it by hand today and the timer has real work.
+	LabelMeasure = "measure"
+	// LabelImplement marks an issue whose task has been agreed and should now be
+	// built, and is what `work -next` picks up. Applying it is the decision to
+	// implement: the timer only delivers it.
+	LabelImplement = "implement"
+)
 
-// nextIssue returns the oldest open issue labelled for review, or 0 when there
-// is none. A timer that finds nothing to do has succeeded, not failed.
-func nextIssue(ctx context.Context, dir string) (int, error) {
+// nextIssue returns the oldest open issue carrying the label, or 0 when there is
+// none. A timer that finds nothing to do has succeeded, not failed.
+func nextIssue(ctx context.Context, dir, label string) (int, error) {
 	res, err := run(ctx, runOpts{
 		dir: dir, name: "gh", timeout: 60 * time.Second,
-		args: []string{"issue", "list", "--label", LabelMeasure, "--state", "open",
+		args: []string{"issue", "list", "--label", label, "--state", "open",
 			"--json", "number", "--limit", "50"},
 	})
 	if err != nil {
@@ -87,11 +96,11 @@ func nextIssue(ctx context.Context, dir string) (int, error) {
 
 // unlabel takes the issue out of the queue. The label is the queue, so a job
 // that finishes and leaves it in place is a job that runs again on the next
-// tick, forever: the timer would spend the daily cap re-measuring one issue.
-func unlabel(ctx context.Context, dir string, number int) error {
+// tick, forever: the timer would spend the daily cap on one issue.
+func unlabel(ctx context.Context, dir string, number int, label string) error {
 	_, err := run(ctx, runOpts{
 		dir: dir, name: "gh", timeout: 60 * time.Second,
-		args: []string{"issue", "edit", fmt.Sprint(number), "--remove-label", LabelMeasure},
+		args: []string{"issue", "edit", fmt.Sprint(number), "--remove-label", label},
 	})
 	return err
 }
