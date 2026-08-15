@@ -100,6 +100,14 @@ hand wrap them: a wrapped line breaks inline code spans in the rendered view.
   performs every git and `gh` mutation itself, so no phase is handed a commit, a
   push or a merge. `--allowed-tools` is a guardrail, not a sandbox; the worktree
   is the boundary.
+- **This repository is published, so it names no particular setup.** Say what
+  makes a fact checkable by someone with no access to the machine it was found
+  on: "a real server", "a live site", "a target that is not jalon". A hostname,
+  a username, an absolute home path or another repository's name is a coordinate
+  that exists only in one place, and it survives forever once pushed. This
+  applies to **commit messages as much as to files**, and they are the harder
+  half: a message body is not in the diff a reviewer reads, which is how the
+  rule was broken after it had been agreed.
 - User visible changes get a `CHANGELOG.md` entry under `## [Unreleased]`. A tag
   whose section is missing fails the release workflow.
 - The file format is documented in `docs/format.md`; a change there and a change
