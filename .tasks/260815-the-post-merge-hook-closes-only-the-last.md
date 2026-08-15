@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -16,3 +16,4 @@ links: []
 
 - 2026-08-15 altsoyuz: found by using it: pull requests 19 and 20 landed in one git pull, and only the task named by the tip commit was closed; the other stayed todo while its implementation was already on main
 - 2026-08-15 altsoyuz: fixed by hand rather than by jalon work: nothing covers this shell script, so make check would have proven nothing and the gate would have been theatre
+- 2026-08-15 altsoyuz: closed.

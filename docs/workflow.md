@@ -95,7 +95,12 @@ The conventions carry more than the binary does.
   the last one open with its work already on the branch.
 
   It leaves the change uncommitted on purpose: you decide when it goes in, and
-  `git checkout .tasks` undoes it.
+  `git checkout .tasks` undoes it. That is also why it belongs on a machine
+  where a person pulls and nowhere else: **never install it on an agent's
+  clone.** The uncommitted change makes the next `git pull --ff-only` refuse
+  with "your local changes would be overwritten", and the systemd unit's pull is
+  deliberately non fatal, so the timer would stay green while the checkout sat
+  frozen on an old commit.
 - **`jalon compact -check`** in a pre-commit hook keeps files inside a token
   budget before they become expensive to read.
 
