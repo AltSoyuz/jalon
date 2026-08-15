@@ -131,9 +131,15 @@ Each phase leaves what it printed in `.jalon-review/`, as `facts.md`,
 whose output is discarded cannot be diagnosed when it fails, and the writing
 phase failed on a real job having created nothing readable at all.
 
-On failure the worktree is kept, and the error names its path and the command
-that removes it. The evidence of what went wrong is the only thing worth having
-at that point, and deleting it to look tidy would throw away the bug report.
+On failure the worktree is kept, parked under `.jalon/failed/<job>`, and the
+error names its path and the command that removes it. The evidence of what went
+wrong is the only thing worth having at that point, and deleting it to look tidy
+would throw away the bug report. Parking it is what keeps the evidence without
+freezing the machine: `.jalon/worktrees/` is empty again, so the next tick runs
+the next item, and the failed issue leaves the queue with a message saying how
+to put it back. `doctor` warns while wrecks are kept; at ten, the next job
+refuses until some are removed, because a machine failing every tick must stop
+within a night and not fill the disk.
 
 ## `jalon work <task-id>`
 
@@ -193,8 +199,9 @@ build`, which proves the thing compiles and nothing else: there, `work` will
 produce green pull requests that can still be wrong, and the real gate is your
 eyes on the diff.
 
-The phase output lands in `.jalon-work/work.md`, and a failure keeps the
-worktree so the diff that failed can be read.
+The phase output lands in `.jalon-work/work.md`, and a failure parks the
+worktree under `.jalon/failed/` so the diff that failed can be read, exactly as
+`review` does.
 
 ### What would kill it
 
@@ -396,9 +403,11 @@ armed: one issue, two near-identical task proposals. If the label cannot be
 removed the work is still published, and the message says so and gives the
 command, because the alternative is a silent loop.
 
-A failed review keeps its label and its worktree. That is deliberate: the stale
-worktree makes `doctor` refuse the next job, so a repeatedly failing issue stops
-the timer instead of retrying hourly.
+A failed job leaves the queue too, and its wreck is parked out of `doctor`'s
+way. The first version kept the label and the worktree in place so that a
+failure would stop the timer; on a real timer that turned one failure into a
+frozen night. Now one failure costs one item, the wreck is still there to read,
+and the cap of ten wrecks is what stops a machine failing in a loop.
 
 Two things the runbook will remind you of, because both are easy to miss:
 

@@ -1,0 +1,19 @@
+---
+status: todo
+created: 2026-08-15
+links: []
+---
+
+# jalon runs the probes itself and writes facts.md from its own output
+
+## Context
+
+## Decisions
+
+- 2026-08-15 altsoyuz: the facts phase loses Bash: it reads with Read, Grep and Glob and prints the probe commands to run, one per line, no shell characters; jalon executes those matching probes.allowed with no shell, one process per line, and writes facts.md itself from command, exit status and captured output
+- 2026-08-15 altsoyuz: the gate becomes 'at least one probe ran'; the console-block regexp, suspectCommands and the $-block convention in the skills go away, and the known limit 'the gate does not prove execution' leaves docs/agent.md because it is no longer true
+- 2026-08-15 altsoyuz: the skeptic and task phases are unchanged and receive facts that provably ran; the review still spends three model calls, the facts one now without a tool loop, which should cost less and take less time; measure both before and after on one real issue
+
+## Log
+
+- 2026-08-15 altsoyuz: measured problem: docs/agent.md records a live run whose facts.md held a plausible $ which gh block for a command that did not run; the survey of other agents found nobody enforcing measurement in code, so this step is what makes the differentiating claim provable. Fourth in the order because it touches the skills and the gate together.
