@@ -134,11 +134,11 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		prompt: "Try to refute the premise of the issue on stdin with a command, following the " +
 			"jalon-review-skeptic method. One pass. Print your answer; do not write any file.",
 	})
-	if err != nil {
-		return keep(fmt.Errorf("review: %w", err))
-	}
 	if werr := os.WriteFile(filepath.Join(wt.path, reviewDir, "skeptic.md"), []byte(skeptic), 0o644); werr != nil {
 		return keep(fmt.Errorf("review: %w", werr))
+	}
+	if err != nil {
+		return keep(fmt.Errorf("review: %w", err))
 	}
 	fmt.Fprintf(env.Stderr, "jalon: skeptic answered, %d bytes\n", len(skeptic))
 

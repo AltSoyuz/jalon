@@ -187,6 +187,40 @@ esac`)
 	}
 }
 
+// A failing skeptic must still leave what it printed on disk, for the same
+// reason the writing phase does: the cause of a failure is otherwise found
+// only by replaying the invocation by hand.
+func TestReviewKeepsWhatTheSkepticPrintedOnFailure(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", `case "$*" in
+*--version*) echo "9.9.9 (Claude Code)" ;;
+*--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
+*jalon-review-facts*)
+  cat <<'FACTS'
+`+factsBlock+`FACTS
+  ;;
+*jalon-review-skeptic*) echo "The budget ran out before I could finish."; exit 1 ;;
+esac`)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+
+	res, _, _, err := runReview(t, root)
+	if err == nil {
+		t.Fatal("a skeptic phase that fails must fail the review")
+	}
+	if res.Worktree == "" {
+		t.Fatal("the worktree must be kept, or there is nothing left to read")
+	}
+	saved := filepath.Join(root, ".jalon", "worktrees", "review-42", reviewDir, "skeptic.md")
+	b, rerr := os.ReadFile(saved)
+	if rerr != nil {
+		t.Fatalf("the skeptic phase output was discarded: %v", rerr)
+	}
+	if !strings.Contains(string(b), "budget ran out") {
+		t.Errorf("skeptic.md does not hold what the phase printed:\n%s", b)
+	}
+}
+
 // The gate is the reason this design is worth anything: no facts, no task.
 func TestReviewGateRefusesNarration(t *testing.T) {
 	s := newStubs(t)
