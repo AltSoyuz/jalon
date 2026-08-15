@@ -15,4 +15,15 @@ set -e
 
 command -v jalon >/dev/null 2>&1 || exit 0
 
-git log -1 --format=%B HEAD | jalon close -from-merge
+# Every message the pull brought in, not just the tip. One `git pull` routinely
+# lands several merges, and reading HEAD alone closed the last one's task while
+# the others stayed open with their work already on the branch.
+#
+# ORIG_HEAD is what the merge moved from. Without it there is no range to read,
+# and a bare `git log HEAD` would walk the entire history and close every id
+# ever written in a message, so the fallback stays at one commit.
+if git rev-parse --verify --quiet ORIG_HEAD >/dev/null 2>&1; then
+	git log ORIG_HEAD..HEAD --format=%B
+else
+	git log -1 --format=%B HEAD
+fi | jalon close -from-merge

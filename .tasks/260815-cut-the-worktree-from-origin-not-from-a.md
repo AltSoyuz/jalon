@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -17,3 +17,4 @@ links: []
 ## Log
 
 - 2026-08-15 altsoyuz: readTask still reads the local .tasks, so work requires the task to exist in your checkout; that failure is loud and its fix is git pull, unlike a stale base which is silent
+- 2026-08-15 altsoyuz: closed.

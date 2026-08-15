@@ -90,6 +90,10 @@ The conventions carry more than the binary does.
   cp hooks/post-merge .git/hooks/post-merge && chmod +x .git/hooks/post-merge
   ```
 
+  It reads every message the pull brought in, not just the tip: one `git pull`
+  routinely lands several merges, and reading `HEAD` alone left every task but
+  the last one open with its work already on the branch.
+
   It leaves the change uncommitted on purpose: you decide when it goes in, and
   `git checkout .tasks` undoes it.
 - **`jalon compact -check`** in a pre-commit hook keeps files inside a token
