@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: done
 created: 2026-08-13
 links: [agent/review.go, agent/doctor.go, agent/setup/jalon-agent.service.tmpl, .github/workflows/ci.yml]
 ---
@@ -56,3 +56,5 @@ config) which stay cheap regardless.
 ## Log
 
 - 2026-08-13 jalon-agent: Measured make check twice on this checkout: go test -race reports ~1.4s for the root package and ~2.8-2.9s for agent, on top of unmeasured fmt/vet/build/dogfood overhead -- total wall-clock and real production tick frequency/cost could not be measured, no time/date on the allowed command list and no live deployed timer to sample
+- 2026-08-15 altsoyuz: duplicate of 260813-skip-criterion-in-doctor-when-review-run, which shipped: two reviews measured the same issue because review did not remove the measure label yet, so the queue handed it out twice
+- 2026-08-15 altsoyuz: closed.

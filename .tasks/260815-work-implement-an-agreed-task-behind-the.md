@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -21,3 +21,5 @@ links: []
 - 2026-08-15 altsoyuz: publish is parameterised by branch, pathspec and message rather than duplicated: review commits .tasks only, work commits the checkout minus .jalon-work and .claude
 - 2026-08-15 altsoyuz: the criterion is handed to the model through probes.allowed rather than as its own permission rule: a compound criterion like npm ci && npm run build cannot be expressed as a prefix rule, and both site configs already list its components
 - 2026-08-15 altsoyuz: both gates proven non vacuous by neutering them: TestWorkStopsWhenTheCriterionFails and TestWorkStopsWhenNothingChanged fail without the checks they assert
+- 2026-08-15 altsoyuz: shipped in pull request 16 and used twice since; the closes trailer was in its commit but the post-merge hook read only the tip of a pull that carried several merges, which is the bug fixed in 260815-the-post-merge-hook-closes-only-the-last
+- 2026-08-15 altsoyuz: closed.
