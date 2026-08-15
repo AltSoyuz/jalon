@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check on every tick would be a standing bill. Everything else doctor checks
   establishes that a binary exists and takes the right flags, which does not
   catch an expired token.
+- `hooks/post-merge` reads every message a pull brought in (`ORIG_HEAD..HEAD`)
+  instead of only the tip commit. One `git pull` routinely lands several merges,
+  and the old form closed the last one's task while the others stayed open with
+  their work already on the branch. Found that way: two pull requests landed
+  together and one task was left behind.
 - A job's worktree is cut from `origin/<default_branch>` after an explicit
   fetch, instead of from whatever the local branch holds. Nothing updates a
   target repository's checkout: the systemd unit pulls the jalon checkout and

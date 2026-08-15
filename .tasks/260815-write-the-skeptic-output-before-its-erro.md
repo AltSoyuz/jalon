@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: [agent/review.go]
 ---
@@ -29,3 +29,6 @@ Nothing else in `review.go` moves.
 - 2026-08-15 altsoyuz: the reordering is one line and matches what the facts and task phases already do: write the file, then check the error, so a failed phase always leaves its output behind
 
 ## Log
+
+- 2026-08-15 altsoyuz: closed.
+- 2026-08-15 altsoyuz: closed by hand: implemented and merged in pull request 19, but the post-merge hook read only the tip of a pull that carried two merges
