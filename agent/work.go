@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 type WorkOptions struct {
 	TaskID       string
+	Next         bool // take the oldest open issue labelled for implementation
 	KeepWorktree bool
 }
 
@@ -27,15 +29,43 @@ const workDir = ".jalon-work"
 //
 // The split with Review is the point. Review is for an idea you doubt: it
 // measures, tries to refute, and proposes. Work is for a task you have already
-// agreed to by merging it, and it writes code. Feeding an issue straight to Work
-// would skip the human gate that makes the whole design worth anything, so it
-// takes a task id and nothing else.
+// agreed to by merging it, and it writes code.
+//
+// It never takes an issue number as the thing to build: that would skip the
+// human gate the whole design rests on. What -next accepts is an issue a person
+// labelled, which then names its task; the label is the decision, and the task
+// is still what gets implemented.
 //
 // Where Review needed Go code to check that the model had measured, because that
 // cannot be verified mechanically, Work has something better and already written:
 // the criterion either exits 0 or it does not.
 func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	var res WorkResult
+
+	// The queue is resolved before the preflight, for the same reason review
+	// does it: Doctor runs the repository's criterion in full, and a tick that
+	// finds nothing labelled would otherwise pay for a test suite and throw the
+	// result away.
+	//
+	// This is not autonomy. The label is a button a person pressed, from a phone
+	// or anywhere else, and the timer only delivers it: jalon never chooses what
+	// to implement.
+	issueNo := 0
+	if opt.Next {
+		n, err := nextIssue(ctx, env.Root, LabelImplement)
+		if err != nil {
+			return res, fmt.Errorf("work: cannot read the queue: %w; run jalon doctor", err)
+		}
+		if n == 0 {
+			fmt.Fprintf(env.Stderr, "jalon: no open issue labelled %q, nothing to implement\n", LabelImplement)
+			return res, nil
+		}
+		id, err := taskForIssue(env.Root, n)
+		if err != nil {
+			return res, fmt.Errorf("work: %w", err)
+		}
+		issueNo, opt.TaskID = n, id
+	}
 
 	// Doctor runs the criterion before the model touches anything, which is what
 	// makes the same criterion meaningful afterwards: a red result at the end is
@@ -121,7 +151,24 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 
 	body := fmt.Sprintf("Implementation of `%s`, written by `jalon work`.\n\nThe criterion `%s` passed on this branch before the pull request existed. That is the only thing it proves: read the diff.\n\nFiles changed: %d\n",
 		opt.TaskID, cfg.Criterion, len(changed))
+	// The forge's own mechanism does the closing: a merged pull request saying
+	// this closes the issue. jalon carries the number and nothing else, so there
+	// is no polling and no state to reconcile. A task written by hand carries no
+	// issue, and then there is nothing to close.
+	if n := issueOf(task); n != "" {
+		body += "\nCloses #" + n + "\n"
+	}
 	res.PR, _ = createPR(ctx, wt.path, "Work: "+opt.TaskID, body)
+
+	// Out of the queue before anything else is reported. The label is the queue,
+	// and an issue left in it is implemented again on the next tick, which would
+	// spend the whole daily cap building the same thing.
+	if issueNo != 0 {
+		if err := unlabel(ctx, wt.path, issueNo, LabelImplement); err != nil {
+			fmt.Fprintf(env.Stderr, "jalon: the work is published but issue #%d still carries the %q label, so the next tick will implement it again: remove it by hand with gh issue edit %d --remove-label %s (%v)\n",
+				issueNo, LabelImplement, issueNo, LabelImplement, err)
+		}
+	}
 
 	fmt.Fprintf(env.Stdout, "%s %s\n", opt.TaskID, res.PR)
 	notify(ctx, env, cfg, fmt.Sprintf("jalon work %s: %s", opt.TaskID, res.PR))
@@ -157,6 +204,69 @@ func readTask(root, id string) (string, error) {
 		return "", fmt.Errorf("task %s is done; work implements a task that is still open", id)
 	}
 	return string(b), nil
+}
+
+// taskForIssue finds the task that names this issue. The label says "implement
+// this"; which task that means is written in the task itself, and jalon does not
+// invent it. Two tasks naming the same issue is a person's mistake to resolve,
+// not something to pick between.
+func taskForIssue(root string, number int) (string, error) {
+	paths, err := filepath.Glob(filepath.Join(root, ".tasks", "*.md"))
+	if err != nil {
+		return "", err
+	}
+	want := strconv.Itoa(number)
+	var found []string
+	for _, p := range paths {
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return "", rerr
+		}
+		if issueOf(string(b)) == want {
+			found = append(found, strings.TrimSuffix(filepath.Base(p), ".md"))
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0], nil
+	case 0:
+		return "", fmt.Errorf("issue #%d is labelled %q but no task in .tasks names it; merge the review's pull request first, or add \"issue: %d\" to the task by hand",
+			number, LabelImplement, number)
+	default:
+		return "", fmt.Errorf("issue #%d is named by %d tasks (%s); leave the one to implement and remove the issue key from the others",
+			number, len(found), strings.Join(found, ", "))
+	}
+}
+
+// issueOf reads the one front matter key work needs, and returns "" when the
+// task carries none. Scanning for a single key rather than calling the core's
+// parser is the accepted cost of the package boundary, the same trade as the
+// gh wrapper in gh.go: agent cannot import package main, and a second full
+// front matter implementation here would be a second thing to keep true.
+func issueOf(task string) string {
+	rest, ok := strings.CutPrefix(task, "---\n")
+	if !ok {
+		return ""
+	}
+	frontMatter, _, ok := strings.Cut(rest, "\n---")
+	if !ok {
+		return ""
+	}
+	for line := range strings.SplitSeq(frontMatter, "\n") {
+		v, ok := strings.CutPrefix(line, "issue:")
+		if !ok {
+			continue
+		}
+		// Anything that is not a plain number is treated as absent rather than
+		// pasted into a pull request body, where "Closes #<garbage>" would
+		// either do nothing or name someone else's issue.
+		v = strings.TrimSpace(v)
+		if v == "" || strings.ContainsFunc(v, func(r rune) bool { return r < '0' || r > '9' }) {
+			return ""
+		}
+		return v
+	}
+	return ""
 }
 
 // changedFiles is what the phase actually did to the checkout, including files

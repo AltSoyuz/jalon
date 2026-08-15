@@ -43,7 +43,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// away. nextIssue needs the root and nothing Doctor produces, so the order
 	// costs nothing to invert.
 	if opt.Next {
-		n, err := nextIssue(ctx, env.Root)
+		n, err := nextIssue(ctx, env.Root, LabelMeasure)
 		if err != nil {
 			// gh is the one thing this path needs before the preflight has had
 			// a chance to diagnose it, so point at the verb that will.
@@ -180,6 +180,16 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	}
 	res.TaskID = id
 
+	// The writing phase is told to run jalon new -issue N, which is what lets a
+	// later jalon work tell the forge which issue its implementation closes.
+	// A warning rather than a refusal: the key is a convenience for a run that
+	// may never happen, and throwing away a measured review over it would cost
+	// far more than the missing line.
+	if b, rerr := os.ReadFile(filepath.Join(wt.path, ".tasks", id+".md")); rerr == nil && issueOf(string(b)) == "" {
+		fmt.Fprintf(env.Stderr, "jalon: the task carries no issue number, so merging its implementation will not close #%d; add \"issue: %d\" to %s.md by hand\n",
+			iss.Number, iss.Number, id)
+	}
+
 	msg := fmt.Sprintf("[%s] propose %s\n\nMeasured from #%d by jalon review. Facts before plan.\n\nRefs #%d\n",
 		id, strings.TrimPrefix(id, idDatePrefix(id)+"-"), iss.Number, iss.Number)
 	if err := publish(ctx, wt, "task/"+id, []string{".tasks"}, msg); err != nil {
@@ -201,7 +211,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// queue, and an issue left in it is re-measured on the next tick. A failure
 	// here is loud rather than warned, because the consequence is a loop that
 	// spends the daily cap on one issue.
-	if err := unlabel(ctx, wt.path, iss.Number); err != nil {
+	if err := unlabel(ctx, wt.path, iss.Number, LabelMeasure); err != nil {
 		fmt.Fprintf(env.Stderr, "jalon: the review is published but issue #%d still carries the %q label, so the next tick will measure it again: remove it by hand with gh issue edit %d --remove-label %s (%v)\n",
 			iss.Number, LabelMeasure, iss.Number, LabelMeasure, err)
 	}

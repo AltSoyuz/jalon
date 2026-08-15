@@ -22,7 +22,7 @@ conventional:
 
 | Gate | Enforced by |
 |---|---|
-| the decision to implement | `jalon work` only runs when a person triggers it |
+| the decision to implement | `jalon work` builds only what a person named, by id or by the `implement` label |
 | the merge | branch protection on `main`, enforced on administrators too, and jalon has no merge call |
 | production | deploy needs sudo; the agent user has none |
 
@@ -30,8 +30,13 @@ conventional:
 
 ```
 issue ──▶ triage ──▶ review ──▶ [a person merges] ──▶ work ──▶ [merge] ──▶ [deploy]
-          (not yet)  (built)                          (built)
+ measure  (not yet)  (built)     and labels it        (built)
+                                    implement
 ```
+
+The two labels are the queues, and they are the whole remote control. A person
+adds one from the forge's phone app; the timer only delivers it. Nothing here
+decides on its own what to measure or what to build.
 
 Issues are the queue between servers. They carry no state beyond labels, so
 there is nothing to synchronize and nothing to reconcile.
@@ -135,33 +140,52 @@ at that point, and deleting it to look tidy would throw away the bug report.
 Implements one task you have already agreed to, and opens a pull request only if
 the repository's own criterion passes.
 
-It takes a task id and never an issue number. The merged task **is** the
-agreement; reading an issue directly would duplicate `review` and remove the gate
-that makes the whole design worth anything. There is no `-next` and no timer:
-unsupervised implementation has a blast radius that unsupervised measurement does
-not, and at the current rate a queue would have nothing to drain.
+It never takes an issue number as the thing to build: the merged task **is** the
+agreement, and reading an issue directly would duplicate `review` and remove the
+gate the whole design rests on.
 
-1. The `doctor` checks, refuse on any failure. This runs the criterion **before**
+`jalon work -next` takes the oldest open issue labelled `implement` and builds
+**the task that names it**, through the `issue:` key the review wrote. That is
+not autonomy: the label is a button a person pressed, and the timer only
+delivers it. jalon still never chooses what to build, and an issue whose number
+no task carries is a refusal naming both rather than a guess.
+
+The point of it is reach, not automation. The labels are the whole remote
+control: with the forge's phone app you can capture an idea, agree to a task and
+order it built, without a shell, an SSH key, or a network route to the server.
+
+1. On `-next`, resolve the queue first, before the preflight: a tick that finds
+   nothing labelled must not pay for the repository's whole test suite and throw
+   the result away.
+2. The `doctor` checks, refuse on any failure. This runs the criterion **before**
    the model touches anything, which is what makes the same criterion meaningful
    afterwards: a red result at the end belongs to this job, not to a base that
    was already broken.
-2. Read the task from `.tasks/<id>.md`. A missing or `done` task fails here,
+3. Read the task from `.tasks/<id>.md`. A missing or `done` task fails here,
    before a single token is spent.
-3. Ephemeral worktree, skills materialized, exactly as `review`.
-4. **One phase.** It may edit the checkout and run the commands in
+4. Ephemeral worktree, skills materialized, exactly as `review`.
+5. **One phase.** It may edit the checkout and run the commands in
    `probes.allowed`, which is how it iterates on the criterion inside its own
    invocation. jalon runs no loop of its own: a retry here would be an unbounded
    cost with no bound on quality. Its file permission is `Edit`, never a `Write`
    rule, for the reason given above.
-5. **git decides whether anything happened.** A phase that says it implemented
+6. **git decides whether anything happened.** A phase that says it implemented
    something and changed no file is caught here, not by a reader.
-6. **The criterion is the gate, and the whole gate.** Where `review` needed Go
+7. **The criterion is the gate, and the whole gate.** Where `review` needed Go
    code to check that the model had measured, because that cannot be verified
    mechanically, this either exits 0 or it does not. No judgement on the model's
    prose anywhere.
-7. jalon commits the checkout minus its own scratch, pushes, opens the pull
+8. jalon commits the checkout minus its own scratch, pushes, opens the pull
    request. The commit message carries `closes <id>`, so merging closes the task
-   through the existing hook. The model is never handed git or `gh`.
+   through the existing hook, and the pull request body carries `Closes #N` when
+   the task names an issue, so the same merge closes that too. Both are the
+   existing mechanisms of jalon and of the forge; jalon carries two identifiers
+   and keeps no state about either. The model is never handed git or `gh`.
+
+   A task written by hand names no issue, and then there is nothing to close. A
+   review's task names one because the writing phase runs `jalon new -issue N`;
+   if it forgets, the review warns and still publishes, because a measured
+   review is worth more than a missing convenience line.
 
 What the criterion proves is exactly what it proves. On this repository that is
 `make check`, which is a real bar. On a static site it is `npm ci && npm run

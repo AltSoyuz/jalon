@@ -44,10 +44,19 @@ EnvironmentFile={{.EnvFile}}
 ExecStartPre=-/usr/bin/git -C {{.Jalon}} pull --ff-only
 ExecStartPre=/usr/bin/make -C {{.Jalon}} build
 
-# review runs doctor first and refuses on a red base, so a failure here is a
-# real failure and not a half-finished job. The criterion is still the gate: a
-# main that compiles but fails its tests blocks the job.
+# Two stages, two labels, one tick. A Type=oneshot service runs its ExecStart
+# lines in order, so there is no second unit and no combined verb: measure what
+# is labelled "measure", then implement what is labelled "implement". Both
+# succeed quietly on an empty queue, which is the normal state between jobs.
+#
+# The labels are the whole remote control. A person adds one from a phone and
+# the timer delivers it; jalon never chooses what to measure or what to build.
+#
+# Both run doctor first and refuse on a red base, so a failure here is a real
+# failure and not a half-finished job. The criterion is still the gate: a main
+# that compiles but fails its tests blocks the job.
 ExecStart={{.Jalon}}/bin/jalon review -next
+ExecStart={{.Jalon}}/bin/jalon work -next
 
 # The job is bounded by max_budget_usd_per_job and timeout_seconds in
 # .jalon/agent.toml; this is the outer bound for a process that ignores both.

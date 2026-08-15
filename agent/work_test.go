@@ -30,15 +30,35 @@ esac`
 
 // newWorkRepo is newRepo plus one agreed task, which is the state jalon work
 // starts from: a task file already on the default branch.
-func newWorkRepo(t *testing.T, status string) string {
+func newWorkRepo(t *testing.T, status string, frontMatter ...string) string {
 	t.Helper()
 	root := newRepo(t, workTOML)
 	mustWrite(t, filepath.Join(root, ".tasks", workTaskID+".md"),
-		"---\nstatus: "+status+"\ncreated: 2026-08-15\nlinks: []\n---\n\n# Remove the Neosync entry\n\n## Context\n\nOne line, in one file.\n\n## Decisions\n\n## Log\n")
+		"---\nstatus: "+status+"\ncreated: 2026-08-15\n"+strings.Join(frontMatter, "")+"links: []\n---\n\n# Remove the Neosync entry\n\n## Context\n\nOne line, in one file.\n\n## Decisions\n\n## Log\n")
 	mustGit(t, root, "add", "-A")
 	mustGit(t, root, "commit", "-q", "-m", "agree the task")
 	mustGit(t, root, "push", "-q", "origin", "main")
 	return root
+}
+
+// The forge closes the issue, jalon only carries the number. Anything that is
+// not a plain number is treated as absent rather than pasted into a pull
+// request body, where it would do nothing or name someone else's issue.
+func TestIssueOf(t *testing.T) {
+	fm := func(body string) string { return "---\n" + body + "\n---\n\n# T\n\n## Context\n\nissue: 999\n" }
+	for _, c := range []struct{ name, task, want string }{
+		{"a review written task", fm("status: proposed\ncreated: 2026-08-15\nissue: 42\nlinks: []"), "42"},
+		{"a hand written task", fm("status: todo\ncreated: 2026-08-15\nlinks: []"), ""},
+		{"only the front matter is read", fm("status: todo"), ""},
+		{"an empty value", fm("issue:"), ""},
+		{"a url instead of a number", fm("issue: https://example.invalid/42"), ""},
+		{"a number with a suffix", fm("issue: 42-and-more"), ""},
+		{"no front matter at all", "# T\n\nissue: 42\n", ""},
+	} {
+		if got := issueOf(c.task); got != c.want {
+			t.Errorf("%s: issueOf = %q, want %q", c.name, got, c.want)
+		}
+	}
 }
 
 func runWork(t *testing.T, root string) (WorkResult, string, string, error) {
@@ -94,6 +114,153 @@ func TestWorkHappyPath(t *testing.T) {
 	// message and not in the pull request body, which GitHub does not use.
 	if msg := gitOut(t, root, "log", "-1", "--format=%B", branch); !strings.Contains(msg, "closes "+workTaskID) {
 		t.Errorf("the commit does not close the task, so merging it will not:\n%s", msg)
+	}
+}
+
+// An issue whose work is merged has to close. The forge does that itself when a
+// merged pull request says so, which is why jalon carries a number and keeps no
+// state about the issue at all.
+func TestWorkTellsTheForgeWhichIssueItCloses(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	if _, _, _, err := runWork(t, root); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") {
+			body = c
+		}
+	}
+	if !strings.Contains(body, "Closes #42") {
+		t.Errorf("the pull request does not close the issue, so merging it will not:\n%s", body)
+	}
+}
+
+// A task written by hand carries no issue, and then there is nothing to close.
+// Guessing one would name someone else's.
+func TestWorkClosesNothingWhenTheTaskCarriesNoIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed")
+
+	if _, _, _, err := runWork(t, root); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") && strings.Contains(c, "Closes #") {
+			t.Errorf("the pull request closes an issue the task never named:\n%s", c)
+		}
+	}
+}
+
+// The label is the whole remote control: a person adds it from a phone and the
+// timer delivers it. jalon never chooses what to build, which is why -next
+// resolves an issue to the task that names it rather than to anything else.
+func TestWorkNextTakesTheLabelledIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	var out, errb strings.Builder
+	res, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil {
+		t.Fatalf("work -next failed: %v", err)
+	}
+	if res.TaskID != workTaskID {
+		t.Errorf("task = %q, want the one naming issue 42", res.TaskID)
+	}
+	// Out of the queue, or the next tick builds it again and spends the cap.
+	var removed bool
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "issue edit") && strings.Contains(c, "--remove-label "+LabelImplement) {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Error("the label was left in place, so the next tick would implement it again")
+	}
+}
+
+// An empty queue is the normal state of a timer between jobs. A unit that
+// failed hourly on it would train everyone to ignore it.
+func TestWorkNextWithNothingLabelled(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
+	s.add(t, "gh", `case "$1 $2" in
+"issue list") echo "[]" ;;
+*) echo "unexpected gh: $*" >&2; exit 1 ;;
+esac`)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	var out, errb strings.Builder
+	res, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil {
+		t.Fatalf("an empty queue must succeed quietly: %v", err)
+	}
+	if res.PR != "" || res.TaskID != "" {
+		t.Errorf("an empty queue produced %+v", res)
+	}
+	if n := len(s.models(t)); n != 0 {
+		t.Errorf("the model was called %d times on an empty queue", n)
+	}
+	if !strings.Contains(errb.String(), LabelImplement) {
+		t.Errorf("stderr does not say what it looked for:\n%s", errb.String())
+	}
+}
+
+// The label says "implement this". Which task that means is written in the
+// task, and jalon does not invent it.
+func TestWorkNextRefusesWhenNoTaskNamesTheIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed") // no issue key
+
+	var out, errb strings.Builder
+	_, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err == nil {
+		t.Fatal("a labelled issue no task names must refuse")
+	}
+	if !strings.Contains(err.Error(), "42") {
+		t.Errorf("the refusal does not name the issue: %v", err)
+	}
+	if n := len(s.models(t)); n != 0 {
+		t.Errorf("the model was called %d times with nothing to build", n)
+	}
+}
+
+// Two tasks naming one issue is a person's mistake to resolve, not something to
+// pick between.
+func TestWorkNextRefusesWhenTwoTasksNameTheIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+	mustWrite(t, filepath.Join(root, ".tasks", "260815-a-second-task.md"),
+		"---\nstatus: proposed\ncreated: 2026-08-15\nissue: 42\nlinks: []\n---\n\n# Second\n\n## Context\n\nAlso 42.\n")
+
+	var out, errb strings.Builder
+	_, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err == nil {
+		t.Fatal("two tasks naming one issue must refuse rather than pick")
+	}
+	for _, want := range []string{workTaskID, "260815-a-second-task"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %s: %v", want, err)
+		}
 	}
 }
 
