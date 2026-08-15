@@ -22,7 +22,8 @@ type ReviewOptions struct {
 type ReviewResult struct {
 	TaskID   string
 	PR       string
-	Worktree string // set only when the worktree was kept, for inspection
+	Cost     float64 // USD over every phase; -1 when a phase did not report it
+	Worktree string  // set only when the worktree was kept, for inspection
 }
 
 // reviewDir holds what the phases produce, inside the worktree. It is never
@@ -106,7 +107,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// Phase 1: facts. No write tool exists at all, so jalon writes the file
 	// from what the phase printed. The gate then checks content jalon itself
 	// produced rather than something the model could have shaped to pass.
-	facts, err := runPhase(ctx, cfg, wt.path, phase{
+	factsRes, err := runPhase(ctx, cfg, wt.path, phase{
 		name:  "facts",
 		skill: "jalon-review-facts",
 		tools: []string{"Read", "Grep", "Glob", "Bash"},
@@ -115,6 +116,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		prompt: "Gather the measured facts about the issue on stdin, following the jalon-review-facts method. " +
 			"Print the facts document; do not write any file.",
 	})
+	facts := factsRes.out
 	factsPath := filepath.Join(wt.path, reviewDir, "facts.md")
 	if werr := os.WriteFile(factsPath, []byte(facts), 0o644); werr != nil {
 		return keep(fmt.Errorf("review: %w", werr))
@@ -135,7 +137,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 
 	// The skeptic. One pass, separate process, read only: its whole job is to
 	// try to make the premise false.
-	skeptic, err := runPhase(ctx, cfg, wt.path, phase{
+	skepticRes, err := runPhase(ctx, cfg, wt.path, phase{
 		name:  "skeptic",
 		skill: "jalon-review-skeptic",
 		tools: []string{"Read", "Grep", "Glob", "Bash"},
@@ -144,6 +146,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		prompt: "Try to refute the premise of the issue on stdin with a command, following the " +
 			"jalon-review-skeptic method. One pass. Print your answer; do not write any file.",
 	})
+	skeptic := skepticRes.out
 	if werr := os.WriteFile(filepath.Join(wt.path, reviewDir, "skeptic.md"), []byte(skeptic), 0o644); werr != nil {
 		return keep(fmt.Errorf("review: %w", werr))
 	}
@@ -162,7 +165,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// against Edit rules only, and covers every file-editing tool with them. A
 	// Write rule is never in force, and offering one makes the model try a path
 	// that gets denied.
-	written, err := runPhase(ctx, cfg, wt.path, phase{
+	taskRes, err := runPhase(ctx, cfg, wt.path, phase{
 		name:  "task",
 		skill: "jalon-review-task",
 		tools: []string{"Read", "Grep", "Glob", "Write", "Edit", "Bash"},
@@ -177,7 +180,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	// Written before the error is checked, like the facts. This phase failed on
 	// a real job and left nothing to read, so the cause stayed hidden until the
 	// invocation was replayed by hand.
-	if werr := os.WriteFile(filepath.Join(wt.path, reviewDir, "task.md"), []byte(written), 0o644); werr != nil {
+	if werr := os.WriteFile(filepath.Join(wt.path, reviewDir, "task.md"), []byte(taskRes.out), 0o644); werr != nil {
 		return keep(fmt.Errorf("review: %w", werr))
 	}
 	if err != nil {
@@ -214,7 +217,8 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		}
 		body.WriteString("\n")
 	}
-	fmt.Fprintf(&body, "Refs #%d\n", iss.Number)
+	res.Cost = sumCost(factsRes.cost, skepticRes.cost, taskRes.cost)
+	fmt.Fprintf(&body, "Cost: %s over three model calls.\n\nRefs #%d\n", formatCost(res.Cost), iss.Number)
 	res.PR, _ = createPR(ctx, wt.path, "Task: "+id, body.String())
 
 	// Out of the queue before anything else is reported: the label is the
@@ -227,7 +231,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	}
 
 	fmt.Fprintf(env.Stdout, "%s %s\n", id, res.PR)
-	notify(ctx, env, cfg, fmt.Sprintf("jalon review #%d: %s\n%s", iss.Number, id, res.PR))
+	notify(ctx, env, cfg, fmt.Sprintf("jalon review #%d: %s\n%s\ncost %s", iss.Number, id, res.PR, formatCost(res.Cost)))
 
 	if opt.KeepWorktree {
 		res.Worktree = wt.rel

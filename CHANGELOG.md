@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The pull request `jalon work` opens carries the task's digest, `git diff
+  --stat`, the criterion's last line and the job's cost in dollars; `review`
+  carries the cost too. Phases run with `--output-format json` to read
+  `total_cost_usd`, and the number lands in `JALON_METRICS` as `cost_usd`.
+
 - A failed `review` or `work` parks its worktree under `.jalon/failed/` and
   takes the issue out of the queue, so the next tick runs the next item instead
   of the machine waiting for a person; `doctor` warns while wrecks are kept and

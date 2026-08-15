@@ -443,3 +443,73 @@ func TestAFailedWorkLeavesTheQueueAndIsParked(t *testing.T) {
 		t.Errorf("the message must say how to retry:\n%s", errb.String())
 	}
 }
+
+// The body is what a person reads on a phone in the morning: the task's
+// digest, git's summary of the change, the criterion's verdict, the cost. All
+// of it composed from things that already exist, none of it a new mechanism.
+func TestWorkPullRequestBodyIsADigest(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	s.add(t, "jalon", `echo "# `+workTaskID+`"; echo "## Context"; echo "One line, in one file."`)
+	root := newWorkRepo(t, "proposed")
+
+	res, _, _, err := runWork(t, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") {
+			body = c
+		}
+	}
+	for _, want := range []string{
+		"One line, in one file.", // the digest
+		"NOTE.md",                // git diff --stat
+		"Criterion `test ! -f BROKEN`",
+		"Cost: 0.25 USD", // the stub's envelope
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the body lacks %q:\n%s", want, body)
+		}
+	}
+	if res.Cost != 0.25 {
+		t.Errorf("cost = %v, want 0.25 from the envelope", res.Cost)
+	}
+	// The digest was run by jalon in the worktree, offline: no forge call for
+	// a body.
+	var digested bool
+	for _, c := range s.of(t, "jalon") {
+		if strings.Contains(c, "digest -offline "+workTaskID) {
+			digested = true
+		}
+	}
+	if !digested {
+		t.Errorf("jalon digest -offline was not run:\n%s", strings.Join(s.of(t, "jalon"), "\n"))
+	}
+}
+
+// A body that silently lost its digest would read as a task with no context,
+// so the absence is said.
+func TestWorkPullRequestBodySaysWhenTheDigestIsUnavailable(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed")
+
+	if _, _, _, err := runWork(t, root); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") {
+			body = c
+		}
+	}
+	if !strings.Contains(body, "digest unavailable") {
+		t.Errorf("the body hides the missing digest:\n%s", body)
+	}
+}

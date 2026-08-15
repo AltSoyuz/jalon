@@ -17,3 +17,4 @@ links: []
 ## Log
 
 - 2026-08-15 altsoyuz: measured problem: the human review of a work PR is the most expensive minute of the loop and the body says only the criterion passed and a file count. Depends on nothing; second in the order because it makes every later job cheaper to read.
+- 2026-08-15 altsoyuz: implemented: runPhase returns phaseResult{out,cost} read from the CLI's json envelope (unwrap), work's body is prBody: digest -offline, diff --stat, criterion last line, cost; review's body and both notifications carry the cost; metrics gains cost_usd. Test stubs wrap their text in the envelope when --output-format json is passed. Tests: TestUnwrap, TestWorkPullRequestBodyIsADigest, TestWorkPullRequestBodySaysWhenTheDigestIsUnavailable.

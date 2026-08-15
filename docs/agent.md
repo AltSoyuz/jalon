@@ -193,6 +193,16 @@ order it built, without a shell, an SSH key, or a network route to the server.
    if it forgets, the review warns and still publishes, because a measured
    review is worth more than a missing convenience line.
 
+The pull request body is what a person reads on a phone in the morning, so it
+is ordered the way a digest is: `jalon digest -offline <id>` run in the
+worktree, `git diff --stat`, the criterion's last line, and the cost of the job
+in dollars. The cost comes from the CLI's JSON envelope (`--output-format json`,
+`total_cost_usd`), summed over the phases; a `review` body carries it too. When
+the CLI did not report one the body says `unknown` rather than printing zero,
+and the same number lands in `JALON_METRICS` as `cost_usd`, because the kill
+criterion below is stated in dollars per merged branch and until this was read
+no file recorded a dollar amount.
+
 What the criterion proves is exactly what it proves. On this repository that is
 `make check`, which is a real bar. On a static site it is `npm ci && npm run
 build`, which proves the thing compiles and nothing else: there, `work` will

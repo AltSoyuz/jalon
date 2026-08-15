@@ -31,6 +31,9 @@ nobody reads in a diff.
 {"time":"2026-08-06T20:14:03Z","version":"v0.1.0","verb":"digest","id":"260806-migration-auth","ms":14,"bytes":4312,"tokens":1078,"files":2,"commits":6,"git":"ok","gh":"ok"}
 ```
 
+The agent verbs add `cost_usd`, what the model calls of that job cost as the
+CLI reported it; absent when it did not report one.
+
 A write failure warns on stderr and never fails the command. Concurrent loops
 are safe: one short line under `O_APPEND` does not interleave on POSIX.
 

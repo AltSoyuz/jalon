@@ -86,6 +86,7 @@ func cmdReview(args []string, stdout, stderr io.Writer, m *metric) error {
 	res, err := agent.Review(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr},
 		agent.ReviewOptions{Issue: issue, Next: *next, TasksDir: d, KeepWorktree: *keep})
 	m.ID = res.TaskID
+	m.Cost = max(res.Cost, 0)
 	if res.Worktree != "" {
 		fmt.Fprintf(stderr, "jalon: the review worktree is kept at %s; read its facts.md, then: git worktree remove --force %s\n",
 			res.Worktree, res.Worktree)
@@ -129,6 +130,7 @@ func cmdWork(args []string, stdout, stderr io.Writer, m *metric) error {
 	res, err := agent.Work(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr},
 		agent.WorkOptions{TaskID: id, Next: *next, KeepWorktree: *keep})
 	m.ID = res.TaskID
+	m.Cost = max(res.Cost, 0)
 	if res.Worktree != "" {
 		fmt.Fprintf(stderr, "jalon: the work worktree is kept at %s; read its diff and .jalon-work/work.md, then: git worktree remove --force %s\n",
 			res.Worktree, res.Worktree)
