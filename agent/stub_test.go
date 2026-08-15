@@ -57,10 +57,31 @@ exec 0</dev/null
 func (s *stubs) add(t *testing.T, name, script string) {
 	t.Helper()
 	path := filepath.Join(s.dir, name)
+	if name == "claude" {
+		script = envelopeWrap + "body() {\n" + script + "\n}\n" + envelopeDispatch
+	}
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+record+script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
+
+// The real CLI prints a JSON envelope for --print with --output-format json,
+// and jalon reads total_cost_usd out of it. The claude stubs are written as
+// plain text for readability, so the stub wraps whatever its body printed into
+// that envelope, with a fixed cost, when and only when it is a model call. The
+// exit status of the body is preserved: a phase that fails must still fail.
+const envelopeWrap = `wrap() {
+  awk 'BEGIN{printf "{\"type\":\"result\",\"total_cost_usd\":0.25,\"result\":\""}
+       {gsub(/\\/,"\\\\");gsub(/"/,"\\\"");gsub(/\t/,"\\t"); printf "%s%s", (NR>1?"\\n":""), $0}
+       END{printf "\"}\n"}'
+}
+`
+
+const envelopeDispatch = `case "$*" in
+*"--output-format json"*) out=$(body "$@"); code=$?; printf '%s\n' "$out" | wrap; exit $code ;;
+*) body "$@" ;;
+esac
+`
 
 // calls returns every recorded invocation, in order.
 func (s *stubs) recorded(t *testing.T) []string {

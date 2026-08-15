@@ -23,20 +23,21 @@ import (
 const metricsEnv = "JALON_METRICS"
 
 type metric struct {
-	Time    string `json:"time"`
-	Version string `json:"version"`
-	Verb    string `json:"verb"`
-	ID      string `json:"id,omitempty"`
-	MS      int64  `json:"ms"`
-	Bytes   int    `json:"bytes,omitempty"`
-	Tokens  int    `json:"tokens,omitempty"`
-	Files   int    `json:"files,omitempty"`
-	Commits int    `json:"commits,omitempty"`
-	Tasks   int    `json:"tasks,omitempty"`
-	Checks  int    `json:"checks,omitempty"`
-	Git     string `json:"git,omitempty"`
-	GH      string `json:"gh,omitempty"`
-	Err     string `json:"err,omitempty"`
+	Time    string  `json:"time"`
+	Version string  `json:"version"`
+	Verb    string  `json:"verb"`
+	ID      string  `json:"id,omitempty"`
+	MS      int64   `json:"ms"`
+	Bytes   int     `json:"bytes,omitempty"`
+	Tokens  int     `json:"tokens,omitempty"`
+	Files   int     `json:"files,omitempty"`
+	Commits int     `json:"commits,omitempty"`
+	Tasks   int     `json:"tasks,omitempty"`
+	Checks  int     `json:"checks,omitempty"`
+	Cost    float64 `json:"cost_usd,omitempty"` // agent verbs: what the model calls cost; absent when the CLI did not report it
+	Git     string  `json:"git,omitempty"`
+	GH      string  `json:"gh,omitempty"`
+	Err     string  `json:"err,omitempty"`
 
 	start time.Time
 }
