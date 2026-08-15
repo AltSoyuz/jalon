@@ -93,6 +93,41 @@ func cmdReview(args []string, stdout, stderr io.Writer, m *metric) error {
 	return err
 }
 
+func cmdWork(args []string, stdout, stderr io.Writer, m *metric) error {
+	fs := newFlagSet("work", stderr)
+	dir := dirFlag(fs)
+	keep := fs.Bool("keep-worktree", false, "keep the worktree even when the work succeeds, to inspect what the model saw")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkFlagsAfterArgs(fs); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("work: usage: jalon work <task id>; the task is the agreement, so there is no -next and no issue number")
+	}
+	d, err := resolveDir(*dir)
+	if err != nil {
+		return err
+	}
+	// The same resolution every other verb uses, so a prefix works here too.
+	t, err := resolveTask(d, fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("work: %w", err)
+	}
+	ctx, stop := signalCtx()
+	defer stop()
+
+	res, err := agent.Work(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr},
+		agent.WorkOptions{TaskID: t.ID, KeepWorktree: *keep})
+	m.ID = res.TaskID
+	if res.Worktree != "" {
+		fmt.Fprintf(stderr, "jalon: the work worktree is kept at %s; read its diff and .jalon-work/work.md, then: git worktree remove --force %s\n",
+			res.Worktree, res.Worktree)
+	}
+	return err
+}
+
 // cmdAgentInit writes the configuration, the systemd unit and the timer to
 // stdout. It installs nothing: the output is meant to be read, then piped to sh
 // or to a file. The privileged half is a marked block a person runs.
