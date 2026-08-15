@@ -128,15 +128,12 @@ func (s *stubs) of(t *testing.T, name string) []string {
 	return out
 }
 
-// fence is the markdown code fence. A Go raw string cannot contain one, and the
-// stubs have to emit it because it is the shape the gate looks for.
-const fence = "```"
+// factsPlan is what a gathering phase that did its job prints: the probes to
+// run, one per line. jalon runs them and writes the facts itself.
+const factsPlan = "curl -s http://localhost:8080/healthz\n"
 
-// factsBlock is what a gathering phase that did its job prints: a command block
-// in the documented shape, padded past the gate's minimum length.
-const factsBlock = "# Facts\n\nThe issue claims the health endpoint is slow.\n\n" +
-	fence + "console\n$ curl -s http://localhost:8080/healthz\n{\"status\":\"ok\"}\n" + fence + "\n\n" +
-	"That is the measurement, and this line pads the document past the gate minimum of two hundred bytes.\n"
+// happyCurl is the probe the plan names, stubbed like every other program.
+const happyCurl = `echo '{"status":"ok","uptime_s":91422}'`
 
 // happyClaude answers every phase the way a working run would: it prints the
 // facts, prints the skeptic's answer, and rewrites the one task file in place.
@@ -144,9 +141,7 @@ var happyClaude = `case "$*" in
 *--version*) echo "9.9.9 (Claude Code)" ;;
 *--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
 *jalon-review-facts*)
-  cat <<'FACTS'
-` + factsBlock + `FACTS
-  ;;
+  printf '%s' '` + factsPlan + `' ;;
 *jalon-review-skeptic*)
   echo "The premise does not hold. The endpoint answers in 4 ms." ;;
 *jalon-review-task*)

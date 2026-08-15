@@ -80,6 +80,7 @@ func TestReviewHappyPath(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	res, out, _, err := runReview(t, root)
@@ -135,6 +136,7 @@ func TestReviewToolPolicy(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	if _, _, _, err := runReview(t, root); err != nil {
@@ -165,12 +167,14 @@ func TestReviewToolPolicy(t *testing.T) {
 		}
 	}
 
-	// The gathering phase gets the probes and no write tool at all.
-	if !strings.Contains(facts, "Bash(jalon digest:*),Bash(curl -s http://localhost:8080/healthz:*),Read,Grep,Glob") {
-		t.Errorf("the facts phase policy is not derived from the allowlist:\n%s", facts)
+	// The gathering phase has read tools and no shell at all: it chooses the
+	// probes, jalon runs them.
+	if !strings.Contains(facts, "--tools Read,Grep,Glob --allowed-tools Read,Grep,Glob") || strings.Contains(facts, "Bash") {
+		t.Errorf("the facts phase must have read tools and no shell:\n%s", facts)
 	}
-	if strings.Contains(facts, "--tools Read,Grep,Glob,Bash\n") && strings.Contains(facts, "Write") {
-		t.Errorf("the facts phase must have no write tool:\n%s", facts)
+	// The skeptic gets the probes and no write tool.
+	if !strings.Contains(skeptic, "Bash(jalon digest:*),Bash(curl -s http://localhost:8080/healthz:*),Read,Grep,Glob") {
+		t.Errorf("the skeptic policy is not derived from the allowlist:\n%s", skeptic)
 	}
 	if strings.Contains(skeptic, "Write") {
 		t.Errorf("the skeptic must have no write tool:\n%s", skeptic)
@@ -213,14 +217,12 @@ func TestReviewKeepsWhatTheWritingPhasePrinted(t *testing.T) {
 	s.add(t, "claude", `case "$*" in
 *--version*) echo "9.9.9 (Claude Code)" ;;
 *--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
-*jalon-review-facts*)
-  cat <<'FACTS'
-`+factsBlock+`FACTS
-  ;;
+*jalon-review-facts*) printf '%s' '`+factsPlan+`' ;;
 *jalon-review-skeptic*) echo "The premise does not hold." ;;
 *jalon-review-task*) echo "A Write rule was offered, denied, and I stopped." ;;
 esac`)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
@@ -253,14 +255,12 @@ func TestReviewRefusesASecondTaskFile(t *testing.T) {
 	s.add(t, "claude", `case "$*" in
 *--version*) echo "9.9.9 (Claude Code)" ;;
 *--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
-*jalon-review-facts*)
-  cat <<'FACTS'
-`+factsBlock+`FACTS
-  ;;
+*jalon-review-facts*) printf '%s' '`+factsPlan+`' ;;
 *jalon-review-skeptic*) echo "The premise does not hold." ;;
 *jalon-review-task*) `+rewriteTask+`; printf -- '---\nstatus: proposed\n---\n\n# Second\n' > .tasks/260813-second.md ;;
 esac`)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	_, _, _, err := runReview(t, root)
@@ -280,13 +280,11 @@ func TestReviewKeepsWhatTheSkepticPrintedOnFailure(t *testing.T) {
 	s.add(t, "claude", `case "$*" in
 *--version*) echo "9.9.9 (Claude Code)" ;;
 *--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
-*jalon-review-facts*)
-  cat <<'FACTS'
-`+factsBlock+`FACTS
-  ;;
+*jalon-review-facts*) printf '%s' '`+factsPlan+`' ;;
 *jalon-review-skeptic*) echo "The budget ran out before I could finish."; exit 1 ;;
 esac`)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
@@ -313,6 +311,7 @@ func TestTheWorktreeIsCutFromOriginNotFromTheLocalBranch(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	// A commit that is on origin and not in this checkout, which is the state
@@ -350,6 +349,7 @@ func TestReviewReadsTheTaskFromOrigin(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newRepo(t, reviewTOML)
 	queueTask(t, root, reviewTaskID, StatusMeasure, "")
 	// Local only: written, not committed, not pushed.
@@ -369,6 +369,7 @@ func TestAJobRefusesToRunWhenItCannotReachOrigin(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 	mustGit(t, root, "remote", "remove", "origin")
 
@@ -385,73 +386,112 @@ func TestAJobRefusesToRunWhenItCannotReachOrigin(t *testing.T) {
 	}
 }
 
-// The gate is the reason this design is worth anything: no facts, no task.
+// The gate is the reason this design is worth anything: no measurement, no
+// task. A phase that narrates instead of naming probes has every line refused,
+// nothing runs, and the job stops with the refusals named.
 func TestReviewGateRefusesNarration(t *testing.T) {
 	s := newStubs(t)
-	s.add(t, "claude", claudeWith(strings.Repeat("This looks slow to me and I believe it should be improved. ", 8)))
+	s.add(t, "claude", claudeWith(strings.Repeat("This looks slow to me and I believe it should be improved.\n", 3)))
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
 	if err == nil {
 		t.Fatal("narration was accepted")
 	}
-	if !strings.Contains(err.Error(), "no executed command block") {
-		t.Errorf("err = %v, want it to name the missing command block", err)
+	if !strings.Contains(err.Error(), "no command on the probe list") || !strings.Contains(err.Error(), "3 line(s) refused") {
+		t.Errorf("err = %v, want it to say nothing ran and count the refusals", err)
 	}
 	assertStopped(t, s, root, res, 1)
-}
-
-func TestReviewGateRefusesAThinDocument(t *testing.T) {
-	s := newStubs(t)
-	s.add(t, "claude", claudeWith("nothing to report"))
-	s.add(t, "gh", happyGH)
-	root := newReviewRepo(t, reviewTOML)
-
-	res, _, _, err := runReview(t, root)
-	if err == nil || !strings.Contains(err.Error(), "stopped too early") {
-		t.Fatalf("err = %v, want a refusal naming the short document", err)
+	// What the phase printed is kept for reading, beside the facts.
+	if b, rerr := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "probes.md")); rerr != nil || !strings.Contains(string(b), "looks slow") {
+		t.Errorf("probes.md does not hold what the phase printed: %v %q", rerr, b)
 	}
-	assertStopped(t, s, root, res, 1)
 }
 
-// A command outside the allowlist, or one composed of several, is reported for
-// a human to check rather than stopping the job: three live runs stopped on how
-// a command was written while the measurements were sound every time, and a
-// facts document is evidence, not something jalon executes.
-func TestReviewReportsSuspectCommandsWithoutStopping(t *testing.T) {
+// A composed line, a command outside the list, and a program this machine
+// lacks are refused and named, not run and not fatal: as long as one probe
+// ran there are facts. The refusals reach the document, stderr and the pull
+// request, so a reader knows what nothing rests on.
+func TestReviewRefusesProbesWithoutStopping(t *testing.T) {
 	s := newStubs(t)
-	s.add(t, "claude", claudeWith("# Facts\n\n"+fence+"console\n$ psql -c 'drop table users'\ndone\n"+fence+
-		"\n\n"+fence+"console\n$ jalon digest x 2>&1 || true\nok\n"+fence+
-		"\n\nPadding so that this document is comfortably past the two hundred byte minimum the gate applies.\n"))
+	s.add(t, "claude", claudeWith("psql -c drop\njalon digest x 2>&1 || true\ncurl -s http://localhost:8080/healthz\njalon digest "+reviewTaskID+"\n"))
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
+	// No jalon stub: the fourth line names a program this machine lacks.
 	root := newReviewRepo(t, reviewTOML)
 
 	res, _, errb, err := runReview(t, root)
 	if err != nil {
-		t.Fatalf("a suspect command must not stop the job: %v", err)
+		t.Fatalf("a refused probe must not stop the job while another ran: %v", err)
 	}
-	if !strings.Contains(errb, "psql") || !strings.Contains(errb, "probes.allowed") {
-		t.Errorf("the unlisted command was not reported:\n%s", errb)
+	for _, want := range []string{"probe refused: psql -c drop", "probe refused: jalon digest x 2>&1 || true", "not installed: jalon", "1 probe(s) run, 3 refused"} {
+		if !strings.Contains(errb, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errb)
+		}
 	}
-	if !strings.Contains(errb, "composed of several commands") {
-		t.Errorf("the composed command was not reported:\n%s", errb)
-	}
-	// The reader of the pull request needs them too, not just the journal.
 	body := ""
 	for _, c := range s.of(t, "gh") {
 		if strings.Contains(c, "pr create") {
 			body = c
 		}
 	}
-	if !strings.Contains(body, "Check these by hand") || !strings.Contains(body, "psql") {
-		t.Errorf("the pull request body does not carry the caveats:\n%s", body)
+	if !strings.Contains(body, "jalon refused") || !strings.Contains(body, "psql -c drop") {
+		t.Errorf("the pull request body does not carry the refusals:\n%s", body)
 	}
 	if !strings.Contains(body, "Cost: 0.75 USD") {
 		t.Errorf("the pull request body does not carry the cost of three phases:\n%s", body)
 	}
 	if res.TaskID == "" {
 		t.Error("the review produced no task")
+	}
+}
+
+// The facts are jalon's own output: the command as asked, what it printed,
+// and its exit status when it failed. The skeptic and the writing phase read
+// exactly that, and no block in it was ever written by a model.
+func TestTheFactsAreWhatTheProbesPrinted(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWith("curl -s http://localhost:8080/healthz\ncurl -s http://localhost:8080/missing\n"))
+	s.add(t, "gh", happyGH)
+	s.add(t, "curl", `case "$*" in
+*missing*) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
+*) echo '{"status":"ok"}' ;;
+esac`)
+	// A wider prefix, so both curl lines are on the list.
+	root := newReviewRepo(t, strings.Replace(reviewTOML, "curl -s http://localhost:8080/healthz", "curl -s", 1))
+
+	var out, errb strings.Builder
+	res, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{TaskID: reviewTaskID, KeepWorktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, rerr := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "facts.md"))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	facts := string(b)
+	for _, want := range []string{
+		"$ curl -s http://localhost:8080/healthz\n{\"status\":\"ok\"}\n",
+		"$ curl -s http://localhost:8080/missing\n(exit 22: curl: (22)",
+		"Nothing here was written by a model",
+	} {
+		if !strings.Contains(facts, want) {
+			t.Errorf("facts.md lacks %q:\n%s", want, facts)
+		}
+	}
+	// The skeptic was given those facts, not the plan.
+	calls := s.models(t)
+	if !strings.Contains(calls[1], "(exit 22:") {
+		t.Errorf("the skeptic did not receive the facts jalon wrote:\n%s", calls[1])
+	}
+	// The probes ran in the worktree, which is what the model reads.
+	for _, c := range s.of(t, "curl") {
+		if !strings.Contains(c, "curl -s http://localhost:8080/") {
+			t.Errorf("unexpected curl call: %s", c)
+		}
 	}
 }
 
@@ -481,6 +521,7 @@ func TestReviewRefusesAnExistingWorktree(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 	mustWrite(t, filepath.Join(root, ".jalon", "worktrees", "review-"+reviewTaskID, "facts.md"), "earlier evidence")
 
@@ -506,6 +547,7 @@ func TestReviewRefusesADoneTask(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newRepo(t, reviewTOML)
 	queueTask(t, root, reviewTaskID, "done", "")
 	mustGit(t, root, "add", "-A")
@@ -527,6 +569,7 @@ func TestReviewDailyCap(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, strings.Replace(reviewTOML, "daily_job_cap = 10", "daily_job_cap = 1", 1))
 
 	if _, _, _, err := runReview(t, root); err != nil {
@@ -557,6 +600,7 @@ func TestReviewRefusesWithoutConfig(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, "")
 
 	_, _, _, err := runReview(t, root)
@@ -572,6 +616,7 @@ func TestNotifyRunsOneCommand(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	// Shell builtins only: PATH is restricted in these tests, and the point here
 	// is that the message reaches the command's stdin, not that coreutils exist.
 	root := newReviewRepo(t, strings.Replace(reviewTOML,
@@ -608,6 +653,7 @@ func TestReviewTellsThePhaseItsProbes(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	if _, _, _, err := runReview(t, root); err != nil {
@@ -633,6 +679,7 @@ func TestReviewNextWithNothingQueued(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	// A criterion that leaves a trace, so "did not run" is observable rather
 	// than assumed.
 	root := newRepo(t, strings.Replace(reviewTOML, `command = "true"`, `command = "touch criterion-ran"`, 1))
@@ -675,6 +722,7 @@ func TestReviewNextTakesTheOldestUnpublished(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML,
 		"260810-published", "260811-parked", "260812-oldest-free", "260813-younger")
 	// 260810 has its proposal branch on origin already.
@@ -702,6 +750,7 @@ func TestReviewLeavesTheQueueWhenItIsDone(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	if res, _, _, err := runReviewNext(t, root); err != nil || res.TaskID != reviewTaskID {
@@ -735,6 +784,7 @@ func TestAFailedReviewIsParkedAndTheNextJobRuns(t *testing.T) {
 *jalon-review-facts*) echo "The budget ran out."; exit 1 ;;
 esac`)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReviewNext(t, root)
@@ -744,7 +794,7 @@ esac`)
 	if !strings.HasPrefix(res.Worktree, filepath.FromSlash(failedDir)) {
 		t.Fatalf("worktree = %q, want it parked under %s", res.Worktree, failedDir)
 	}
-	if b, rerr := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "facts.md")); rerr != nil || !strings.Contains(string(b), "budget") {
+	if b, rerr := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "probes.md")); rerr != nil || !strings.Contains(string(b), "budget") {
 		t.Errorf("the evidence did not survive the move: %v %q", rerr, b)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(root, ".jalon", "worktrees")); len(entries) != 0 {
@@ -778,6 +828,7 @@ func TestTheFailedDirectoryHasACap(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
 	root := newReviewRepo(t, reviewTOML)
 	for i := 0; i < maxFailed; i++ {
 		mustWrite(t, filepath.Join(root, ".jalon", "failed", fmt.Sprintf("review-%d", i), "x"), "")

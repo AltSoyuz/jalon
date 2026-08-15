@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -97,36 +97,42 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	}
 	input := "Task " + id + " (the file is " + taskPath + "):\n\n--- task starts ---\n" + task + "--- task ends ---\n"
 
-	// Phase 1: facts. No write tool exists at all, so jalon writes the file
-	// from what the phase printed. The gate then checks content jalon itself
-	// produced rather than something the model could have shaped to pass.
-	factsRes, err := runPhase(ctx, cfg, wt.path, phase{
+	// Phase 1: the probes. The model has read tools and no shell: it prints
+	// the commands worth running, one per line, and jalon runs the ones on the
+	// allowlist itself, with no shell, and writes facts.md from what each
+	// really printed. Writing before measuring is impossible by construction,
+	// and a fabricated command block is impossible too: there is no block the
+	// model wrote, only output jalon captured.
+	planRes, err := runPhase(ctx, cfg, wt.path, phase{
 		name:  "facts",
 		skill: "jalon-review-facts",
-		tools: []string{"Read", "Grep", "Glob", "Bash"},
-		allow: append(probeTools(cfg.Probes), "Read", "Grep", "Glob"),
+		tools: []string{"Read", "Grep", "Glob"},
+		allow: []string{"Read", "Grep", "Glob"},
 		stdin: input + probeList(cfg),
-		prompt: "Gather the measured facts about the task on stdin, following the jalon-review-facts method. " +
-			"Print the facts document; do not write any file.",
+		prompt: "Choose the probes that will establish the measured facts about the task on stdin, following the " +
+			"jalon-review-facts method. Print one command per line and nothing else; do not write any file.",
 	})
-	facts := factsRes.out
-	factsPath := filepath.Join(wt.path, reviewDir, "facts.md")
-	if werr := os.WriteFile(factsPath, []byte(facts), 0o644); werr != nil {
+	if werr := os.WriteFile(filepath.Join(wt.path, reviewDir, "probes.md"), []byte(planRes.out), 0o644); werr != nil {
 		return keep(fmt.Errorf("review: %w", werr))
 	}
 	if err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
-	if err := gate(facts); err != nil {
-		return keep(fmt.Errorf("review: %w (the output is in %s)", err, filepath.Join(wt.rel, reviewDir, "facts.md")))
+	facts, ran, refused := runProbes(ctx, cfg, wt.path, id, planRes.out)
+	factsPath := filepath.Join(wt.path, reviewDir, "facts.md")
+	if werr := os.WriteFile(factsPath, []byte(facts), 0o644); werr != nil {
+		return keep(fmt.Errorf("review: %w", werr))
 	}
-	// Not fatal, but the reader of the pull request has to know which claims
-	// rest on something the allowlist did not really cover.
-	suspect := suspectCommands(facts, cfg)
-	for _, s := range suspect {
-		fmt.Fprintf(env.Stderr, "jalon: check by hand: %s\n", s)
+	// The gate: at least one probe ran. It is the whole gate, and it is
+	// jalon's own count rather than a pattern in the model's prose.
+	if ran == 0 {
+		return keep(fmt.Errorf("review: the gathering phase proposed no command on the probe list, so nothing was measured and a review written on nothing is worth nothing (%d line(s) refused; what it printed is in %s)",
+			len(refused), filepath.Join(wt.rel, reviewDir, "probes.md")))
 	}
-	fmt.Fprintf(env.Stderr, "jalon: facts gathered, %d bytes\n", len(facts))
+	for _, r := range refused {
+		fmt.Fprintf(env.Stderr, "jalon: probe refused: %s\n", r)
+	}
+	fmt.Fprintf(env.Stderr, "jalon: %d probe(s) run, %d refused, facts written, %d bytes\n", ran, len(refused), len(facts))
 
 	// The skeptic. One pass, separate process, read only: its whole job is to
 	// try to make the premise false.
@@ -198,14 +204,14 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	}
 	var body strings.Builder
 	fmt.Fprintf(&body, "Measured proposal for `%s`, written by `jalon review`.\n\nMerging is the agreement; this branch holds the task file only. Set its status to %s to have it built.\n\n", id, StatusImplement)
-	if len(suspect) > 0 {
-		body.WriteString("Check these by hand before believing the facts they support:\n\n")
-		for _, s := range suspect {
-			fmt.Fprintf(&body, "- %s\n", s)
+	if len(refused) > 0 {
+		body.WriteString("Probes the gathering phase asked for and jalon refused, so nothing rests on them; add to `probes.allowed` and re-run if one matters:\n\n")
+		for _, r := range refused {
+			fmt.Fprintf(&body, "- `%s`\n", r)
 		}
 		body.WriteString("\n")
 	}
-	res.Cost = sumCost(factsRes.cost, skepticRes.cost, taskRes.cost)
+	res.Cost = sumCost(planRes.cost, skepticRes.cost, taskRes.cost)
 	fmt.Fprintf(&body, "Cost: %s over three model calls.\n", formatCost(res.Cost))
 	if issue != "" {
 		fmt.Fprintf(&body, "\nRefs #%s\n", issue)
@@ -294,61 +300,55 @@ func probeList(cfg *Config) string {
 	return b.String()
 }
 
-// commandBlock is the shape the gathering skill is told to paste for every
-// command it runs.
-var commandBlock = regexp.MustCompile("(?m)^```console\\s*\\n\\$ ([^\\n]+)")
-
-// gate is the structural check between measuring and writing, and it is Go
-// rather than a prompt: writing before facts is impossible by construction, not
-// by instruction.
-//
-// It stops the job for one thing only: the phase narrated instead of measuring.
-// That is the failure worth a stop, and it is the one this stage exists to
-// prevent.
-//
-// It deliberately does NOT stop on what the commands were. Three live runs
-// stopped on how a command was written rather than on whether anything was
-// measured, while the measurements themselves were sound every time, so that
-// check earns a warning and not a refusal. It is also not where safety lives: a
-// facts document is evidence, never something jalon executes. What bounds the
-// job is the tool policy, the throwaway worktree, and the fact that no phase is
-// ever handed a commit or a push.
-//
-// What the gate does not prove either way: that a command ran. A fabricated
-// block passes. Removing that class means having jalon run the probes itself
-// and build the document from its own output, which is the next step and is
-// written down in docs/agent.md as not done.
-func gate(facts string) error {
-	if n := len(strings.TrimSpace(facts)); n < 200 {
-		return fmt.Errorf("the gathering phase produced %d bytes, which is not a facts document; it stopped too early", n)
-	}
-	if len(commandBlock.FindAllString(facts, 1)) == 0 {
-		return errors.New("the gathering phase produced no executed command block, so it narrated instead of measuring, and a review written on narration is worth nothing (the shape is a ```console block whose first line starts with \"$ \")")
-	}
-	return nil
-}
-
-// suspectCommands lists the reported commands a reader should check by hand:
-// one that is not a probe, or one composed out of several. They are reported,
-// never fatal.
-func suspectCommands(facts string, cfg *Config) []string {
-	var out []string
-	seen := make(map[string]bool)
-	for _, m := range commandBlock.FindAllStringSubmatch(facts, -1) {
-		cmd := strings.TrimSpace(m[1])
-		if seen[cmd] {
+// runProbes runs what the gathering phase asked for, one process per line and
+// no shell, and returns the facts document built from the real output, the
+// number of probes that ran, and the lines it refused. A line is refused when
+// it is not on the allowlist or when it is composed of several commands: the
+// allowlist matches one command, so a composed line cannot be checked against
+// it. Refusals are listed in the document and reported, never silent.
+func runProbes(ctx context.Context, cfg *Config, dir, id, plan string) (string, int, []string) {
+	var doc strings.Builder
+	var refused []string
+	ran := 0
+	fmt.Fprintf(&doc, "# Facts for %s\n\nEvery block below is a command jalon ran in the worktree, with what it printed. Nothing here was written by a model.\n\n", id)
+	for line := range strings.SplitSeq(plan, "\n") {
+		cmd := strings.TrimSpace(line)
+		if cmd == "" {
 			continue
 		}
-		switch {
-		case !cfg.Allowed(cmd):
-			seen[cmd] = true
-			out = append(out, fmt.Sprintf("%q is not in probes.allowed", cmd))
-		case strings.ContainsAny(cmd, composeMeta):
-			seen[cmd] = true
-			out = append(out, fmt.Sprintf("%q is composed of several commands, so the allowlist did not really check it", cmd))
+		if !cfg.Allowed(cmd) || strings.ContainsAny(cmd, composeMeta) {
+			refused = append(refused, cmd)
+			continue
 		}
+		words := strings.Fields(cmd)
+		if _, lerr := exec.LookPath(words[0]); lerr != nil {
+			// Not a measurement: nothing started. Refused, and the reason is
+			// in the document, so "the probe list names a program this
+			// machine lacks" is read rather than inferred.
+			refused = append(refused, cmd+" (not installed: "+words[0]+")")
+			continue
+		}
+		res, err := run(ctx, runOpts{dir: dir, name: words[0], args: words[1:], timeout: cfg.Agent.Timeout, maxOut: 32 << 10})
+		ran++
+		fmt.Fprintf(&doc, "```console\n$ %s\n%s", cmd, res.stdout)
+		if !strings.HasSuffix(res.stdout, "\n") && res.stdout != "" {
+			doc.WriteString("\n")
+		}
+		if err != nil {
+			// The failure is a measurement too: a probe that cannot run says
+			// something about the system, and its stderr is part of that.
+			fmt.Fprintf(&doc, "(exit %d: %s)\n", res.code, strings.TrimSpace(res.stderr))
+		}
+		doc.WriteString("```\n\n")
 	}
-	return out
+	if len(refused) > 0 {
+		doc.WriteString("## Refused\n\nAsked for by the gathering phase, not run: not on `probes.allowed`, or composed of several commands.\n\n")
+		for _, r := range refused {
+			fmt.Fprintf(&doc, "- `%s`\n", r)
+		}
+		doc.WriteString("\n")
+	}
+	return doc.String(), ran, refused
 }
 
 // composeMeta is what turns one command into two. Quotes are absent on purpose:

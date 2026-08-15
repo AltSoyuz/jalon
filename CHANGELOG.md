@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `jalon review` runs the probes itself: the gathering phase has read tools
+  and no shell, prints the commands worth running, and jalon executes the ones
+  on `probes.allowed` with no shell and writes `facts.md` from their real
+  output. The gate is "at least one probe ran", counted by jalon; the
+  command-block check on the model's prose is gone with the class of failure
+  it could not catch.
 - The agent queue is the `status` field of the task files on origin's default
   branch, read with git alone: `status: measure` feeds `review -next`,
   `status: implement` feeds `work -next`, a published `task/<id>` or
