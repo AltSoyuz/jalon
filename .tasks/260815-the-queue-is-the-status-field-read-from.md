@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -20,3 +20,4 @@ links: []
 
 - 2026-08-15 altsoyuz: measured problem: 260815-carry-the-issue-number-from-review-to-work spent a day reconciling two identifiers across the forge seam; this removes the second identifier. Third in the order because task 1's 'leave the queue' step changes shape once the queue is the file.
 - 2026-08-15 altsoyuz: implemented: agent/queue.go holds nextTask (git grep on FETCH_HEAD, git ls-remote for published branches, .jalon/failed for wrecks), fetchDefault and readTask from FETCH_HEAD; review takes a task id, feeds the task file to the phases, checks with git that exactly that file changed, sets status: proposed itself and pushes task/<id>; work -next reads status: implement; gh.go keeps createPR only; skills, unit template, setup script and docs updated. Tests rewritten around a queued task fixture.
+- 2026-08-15 altsoyuz: closed.

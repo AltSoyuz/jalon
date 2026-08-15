@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -16,3 +16,5 @@ links: []
 - 2026-08-15 altsoyuz: a refuted premise still closes by hand: telling do this from do nothing would mean judging the model's prose in Go, which this design refuses everywhere else, and the label is already removed so the issue is out of the queue
 
 ## Log
+
+- 2026-08-15 altsoyuz: closed.

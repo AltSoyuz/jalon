@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -17,3 +17,5 @@ links: []
 - 2026-08-15 altsoyuz: an issue labelled implement whose number no task carries is a refusal naming both, not a crash and not a guess: the label says implement this, and jalon does not invent which
 
 ## Log
+
+- 2026-08-15 altsoyuz: closed.
