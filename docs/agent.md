@@ -29,15 +29,23 @@ conventional:
 ## The stages
 
 ```
-issue ──▶ triage ──▶ review ──▶ [a person says go] ──▶ work ──▶ [merge] ──▶ [deploy]
-          (not yet)  (built)                           (not yet)
+issue ──▶ triage ──▶ review ──▶ [a person merges] ──▶ work ──▶ [merge] ──▶ [deploy]
+          (not yet)  (built)                          (built)
 ```
 
 Issues are the queue between servers. They carry no state beyond labels, so
 there is nothing to synchronize and nothing to reconcile.
 
-**Built today: `jalon doctor` and `jalon review`.** `triage` and `work` are
+**Built today: `jalon doctor`, `jalon review` and `jalon work`.** `triage` is
 designed but not written; see the task in `.tasks/`.
+
+The two model-spending verbs answer two different questions, and using one for
+the other's job is waste rather than error. `review` is for an idea you doubt:
+it measures, tries to refute, and proposes. `work` is for a task you have
+already agreed to. A directive you are sure about (`remove this entry`) does not
+need a review: write the task yourself with `jalon new` and a sentence, then run
+`work` on it. The first time that distinction was missed, a review spent three
+model calls and an `npm ci` to locate a line that `grep` finds instantly.
 
 ## `jalon doctor`
 
@@ -116,6 +124,54 @@ On failure the worktree is kept, and the error names its path and the command
 that removes it. The evidence of what went wrong is the only thing worth having
 at that point, and deleting it to look tidy would throw away the bug report.
 
+## `jalon work <task-id>`
+
+Implements one task you have already agreed to, and opens a pull request only if
+the repository's own criterion passes.
+
+It takes a task id and never an issue number. The merged task **is** the
+agreement; reading an issue directly would duplicate `review` and remove the gate
+that makes the whole design worth anything. There is no `-next` and no timer:
+unsupervised implementation has a blast radius that unsupervised measurement does
+not, and at the current rate a queue would have nothing to drain.
+
+1. The `doctor` checks, refuse on any failure. This runs the criterion **before**
+   the model touches anything, which is what makes the same criterion meaningful
+   afterwards: a red result at the end belongs to this job, not to a base that
+   was already broken.
+2. Read the task from `.tasks/<id>.md`. A missing or `done` task fails here,
+   before a single token is spent.
+3. Ephemeral worktree, skills materialized, exactly as `review`.
+4. **One phase.** It may edit the checkout and run the commands in
+   `probes.allowed`, which is how it iterates on the criterion inside its own
+   invocation. jalon runs no loop of its own: a retry here would be an unbounded
+   cost with no bound on quality. Its file permission is `Edit`, never a `Write`
+   rule, for the reason given above.
+5. **git decides whether anything happened.** A phase that says it implemented
+   something and changed no file is caught here, not by a reader.
+6. **The criterion is the gate, and the whole gate.** Where `review` needed Go
+   code to check that the model had measured, because that cannot be verified
+   mechanically, this either exits 0 or it does not. No judgement on the model's
+   prose anywhere.
+7. jalon commits the checkout minus its own scratch, pushes, opens the pull
+   request. The commit message carries `closes <id>`, so merging closes the task
+   through the existing hook. The model is never handed git or `gh`.
+
+What the criterion proves is exactly what it proves. On this repository that is
+`make check`, which is a real bar. On a static site it is `npm ci && npm run
+build`, which proves the thing compiles and nothing else: there, `work` will
+produce green pull requests that can still be wrong, and the real gate is your
+eyes on the diff.
+
+The phase output lands in `.jalon-work/work.md`, and a failure keeps the
+worktree so the diff that failed can be read.
+
+### What would kill it
+
+Written before the first line of it existed, and unchanged since: over the first
+20 jobs, at least 12 branches merged without human correction and at most ~5 USD
+per merged branch. Otherwise `work` is deleted and capture plus `review` stay.
+
 ## The configuration
 
 `.jalon/agent.toml`, versioned in each target repository. Every key is required
@@ -188,7 +244,9 @@ out-of-git state that drifts between servers.
 
 1. **The ephemeral worktree is the real boundary.** It is a detached checkout,
    deleted on success, and it is the layer that holds even if the other two
-   fail.
+   fail. It matters more since `work` exists: `review` never let a phase write
+   outside `.tasks/`, and `work` writes source code by definition. The
+   containment is unchanged, the stake is not.
 2. **The token and branch protection.** A fine-grained PAT limited to the
    owner's repositories, with `issues:write` and `contents:write`. It cannot
    merge. The agent user has no sudo, and no `NOPASSWD` exception exists.

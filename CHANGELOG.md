@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check on every tick would be a standing bill. Everything else doctor checks
   establishes that a binary exists and takes the right flags, which does not
   catch an expired token.
+- `jalon work <task-id>` implements one already agreed task and opens a pull
+  request only if the repository's own `[criterion].command` passes. It takes a
+  task id and never an issue number, because the merged task is the agreement;
+  there is no `-next` and no timer, because unsupervised implementation has a
+  blast radius unsupervised measurement does not. Where `review` needed Go code
+  to check that the model had measured, this gate either exits 0 or it does not,
+  so no judgement on model output is introduced anywhere. The commit carries
+  `closes <id>`, so merging closes the task through the hook that already
+  existed. See `docs/agent.md`.
 - `jalon review` keeps what its writing phase printed, in `.jalon-review/task.md`
   beside the facts and the skeptic, written before the phase's error is checked.
   That phase used to be handed a `Write(.tasks/**)` permission, which Claude Code

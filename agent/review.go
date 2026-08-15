@@ -180,7 +180,9 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	}
 	res.TaskID = id
 
-	if err := publish(ctx, wt, id, iss); err != nil {
+	msg := fmt.Sprintf("[%s] propose %s\n\nMeasured from #%d by jalon review. Facts before plan.\n\nRefs #%d\n",
+		id, strings.TrimPrefix(id, idDatePrefix(id)+"-"), iss.Number, iss.Number)
+	if err := publish(ctx, wt, "task/"+id, []string{".tasks"}, msg); err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
 	var body strings.Builder
@@ -358,21 +360,20 @@ func newTaskID(root string, before map[string]bool) (string, error) {
 	}
 }
 
-// publish is every mutation of the run, done by jalon rather than by the model.
-// The model is never handed a commit or a push, which removes that blast radius
+// publish is every mutation of a run, done by jalon rather than by the model.
+// No phase is ever handed a commit or a push, which removes that blast radius
 // instead of policing it.
-func publish(ctx context.Context, wt *worktree, id string, iss *issue) error {
-	branch := "task/" + id
+//
+// The pathspec is what separates the two verbs: a review commits the task file
+// and nothing else, work commits the checkout minus jalon's own scratch.
+// Whatever is left out stays uncommitted and dies with the worktree.
+func publish(ctx context.Context, wt *worktree, branch string, pathspec []string, msg string) error {
 	if _, err := git(ctx, wt.path, "switch", "-c", branch); err != nil {
 		return err
 	}
-	// Only the task file. Whatever else the phases left in the worktree stays
-	// uncommitted and dies with it.
-	if _, err := git(ctx, wt.path, "add", "--", ".tasks"); err != nil {
+	if _, err := git(ctx, wt.path, append([]string{"add", "--"}, pathspec...)...); err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("[%s] propose %s\n\nMeasured from #%d by jalon review. Facts before plan.\n\nRefs #%d\n",
-		id, strings.TrimPrefix(id, idDatePrefix(id)+"-"), iss.Number, iss.Number)
 	if _, err := git(ctx, wt.path, "commit", "-m", msg); err != nil {
 		return fmt.Errorf("nothing to commit, or the commit failed: %w", err)
 	}

@@ -43,6 +43,7 @@ jalon that calls a model (see docs/agent.md):
 
   doctor               check that this machine can run an agent job
   review <issue>       measure a GitHub issue, propose a task in a pull request
+  work <id>            implement an agreed task, behind the repository criterion
   agent-init           print the config, unit and timer for a machine; installs
                        nothing, read it before you run it
 
@@ -91,6 +92,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		err = cmdDoctor(rest, stdout, stderr, m)
 	case "review":
 		err = cmdReview(rest, stdout, stderr, m)
+	case "work":
+		err = cmdWork(rest, stdout, stderr, m)
 	case "agent-init":
 		err = cmdAgentInit(rest, stdout, stderr, m)
 	case "version", "-version", "--version":

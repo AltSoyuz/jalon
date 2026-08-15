@@ -17,8 +17,8 @@ that calls a model.
 | `render.go` | The markdown subset, the HTML templates, the CSS, the `render` verb. |
 | `github.go` | The only place the core shells out to `gh`. The whole coupling to a forge is one file you can delete. |
 | `metrics.go` | The opt in JSONL line written per invocation. No aggregation: `docs/measuring.md` reads it with `jq`. |
-| `agent_cmd.go` | The only bridge to `agent/`: the `doctor` and `review` verbs, flag parsing and nothing else. |
-| `agent/` | The orchestration layer: config, preflight, the measured review. Its own package, on purpose. `docs/agent.md`. |
+| `agent_cmd.go` | The only bridge to `agent/`: the `doctor`, `review` and `work` verbs, flag parsing and nothing else. |
+| `agent/` | The orchestration layer: config, preflight, the measured review, the implementation behind the criterion. Its own package, on purpose. `docs/agent.md`. |
 
 ## Commands
 
@@ -81,7 +81,7 @@ hand wrap them: a wrapped line breaks inline code spans in the rendered view.
   job, by design. The agent layer is the exception and it is fenced: it lives in
   `agent/`, it is opt in, it needs `.jalon/agent.toml`, and a core file that
   imports it fails `TestCoreDoesNotImportAgent`.
-- **The agent layer is removable.** `rm -rf agent agent_cmd.go`, drop two cases
+- **The agent layer is removable.** `rm -rf agent agent_cmd.go`, drop three cases
   from the switch, and the task manager is intact: no model, no network, no key.
   That is what the boundary test protects, and it is the whole reason `agent/`
   is a package rather than six more files at the root.
