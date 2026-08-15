@@ -57,34 +57,37 @@ func cmdReview(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("review", stderr)
 	dir := dirFlag(fs)
 	keep := fs.Bool("keep-worktree", false, "keep the worktree even when the review succeeds, to inspect what the model saw")
-	next := fs.Bool("next", false, "review the oldest open issue labelled "+agent.LabelMeasure+" (what the timer runs)")
+	next := fs.Bool("next", false, "review the oldest task with status: "+agent.StatusMeasure+" on origin (what the timer runs)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := checkFlagsAfterArgs(fs); err != nil {
 		return err
 	}
-	var issue int
 	switch {
 	case *next && fs.NArg() > 0:
-		return errors.New("review: -next picks the issue, so it takes no argument")
+		return errors.New("review: -next picks the task, so it takes no argument")
 	case !*next && fs.NArg() != 1:
-		return errors.New("review: usage: jalon review <issue number>, or jalon review -next")
-	case !*next:
-		var err error
-		if issue, err = issueNumber(fs.Arg(0)); err != nil {
-			return fmt.Errorf("review: %w", err)
-		}
+		return errors.New("review: usage: jalon review <task id>, or jalon review -next")
 	}
 	d, err := resolveDir(*dir)
 	if err != nil {
 		return err
 	}
+	var id string
+	if !*next {
+		// The same resolution every other verb uses, so a prefix works here too.
+		t, terr := resolveTask(d, fs.Arg(0))
+		if terr != nil {
+			return fmt.Errorf("review: %w", terr)
+		}
+		id = t.ID
+	}
 	ctx, stop := signalCtx()
 	defer stop()
 
 	res, err := agent.Review(ctx, agent.Env{Root: repoRoot(d), Stdout: stdout, Stderr: stderr},
-		agent.ReviewOptions{Issue: issue, Next: *next, TasksDir: d, KeepWorktree: *keep})
+		agent.ReviewOptions{TaskID: id, Next: *next, KeepWorktree: *keep})
 	m.ID = res.TaskID
 	m.Cost = max(res.Cost, 0)
 	if res.Worktree != "" {
@@ -98,7 +101,7 @@ func cmdWork(args []string, stdout, stderr io.Writer, m *metric) error {
 	fs := newFlagSet("work", stderr)
 	dir := dirFlag(fs)
 	keep := fs.Bool("keep-worktree", false, "keep the worktree even when the work succeeds, to inspect what the model saw")
-	next := fs.Bool("next", false, "implement the task named by the oldest open issue labelled "+agent.LabelImplement+" (what the timer runs)")
+	next := fs.Bool("next", false, "implement the oldest task with status: "+agent.StatusImplement+" on origin (what the timer runs)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -161,18 +164,4 @@ func cmdAgentInit(args []string, stdout, stderr io.Writer, m *metric) error {
 		return fmt.Errorf("agent-init: %w", err)
 	}
 	return nil
-}
-
-func issueNumber(s string) (int, error) {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("%q is not an issue number", s)
-		}
-		n = n*10 + int(c-'0')
-	}
-	if n == 0 {
-		return 0, fmt.Errorf("%q is not an issue number", s)
-	}
-	return n, nil
 }

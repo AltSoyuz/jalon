@@ -139,7 +139,7 @@ const factsBlock = "# Facts\n\nThe issue claims the health endpoint is slow.\n\n
 	"That is the measurement, and this line pads the document past the gate minimum of two hundred bytes.\n"
 
 // happyClaude answers every phase the way a working run would: it prints the
-// facts, prints the skeptic's answer, and creates one task file.
+// facts, prints the skeptic's answer, and rewrites the one task file in place.
 var happyClaude = `case "$*" in
 *--version*) echo "9.9.9 (Claude Code)" ;;
 *--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
@@ -150,37 +150,21 @@ var happyClaude = `case "$*" in
 *jalon-review-skeptic*)
   echo "The premise does not hold. The endpoint answers in 4 ms." ;;
 *jalon-review-task*)
-  mkdir -p .tasks
-  cat > .tasks/260813-health-endpoint-is-not-slow.md <<'TASK'
----
-status: proposed
-created: 2026-08-13
-links: []
----
-
-# Health endpoint is not slow
-
-## Context
-
-Measured.
-
-## Decisions
-
-## Log
-TASK
-  ;;
+  ` + rewriteTask + ` ;;
 esac`
 
-// happyGH answers every forge call a job makes, including the queue: both
-// review and work resolve one from a label, so a stub that answers everything
-// has to answer that too.
+// rewriteTask is what a writing phase that did its job does: it edits the
+// task it was given, in place. The task's path is read back from the recorded
+// stdin, which is where jalon names it.
+const rewriteTask = `f=$(grep -o -m1 '\.tasks/[0-9a-z-]*\.md' "$JALON_TEST_CALLS/$(printf %03d "$n").call"); printf '\nMeasured: the endpoint answers in 4 ms, so there is nothing to speed up.\n' >> "$f"`
+
+// happyGH answers every forge call a job makes. The queue is not one of them:
+// it is read from git, so a stub that answered issue calls would only hide a
+// regression to the forge.
 const happyGH = `case "$1 $2" in
 "auth status") echo "Logged in to github.com" ;;
 "api -i")      echo "X-Oauth-Scopes: repo, read:org" ;;
-"issue list")  printf '[{"number":42}]' ;;
-"issue view")  printf '{"number":42,"title":"health is slow","body":"it feels slow","url":"https://example.invalid/42","state":"OPEN"}' ;;
 "pr create")   echo "https://example.invalid/pull/7" ;;
-"issue edit")  echo "edited" ;;
 *) echo "unexpected gh: $*" >&2; exit 1 ;;
 esac`
 

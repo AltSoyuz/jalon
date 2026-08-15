@@ -11,7 +11,7 @@ import (
 
 func TestAgentVerbsAreInTheUsage(t *testing.T) {
 	stdout, _ := runOK(t, "help")
-	for _, want := range []string{"doctor", "review <issue>", "docs/agent.md"} {
+	for _, want := range []string{"doctor", "review <id>", "work <id>", "docs/agent.md"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the usage does not mention %q:\n%s", want, stdout)
 		}
@@ -19,16 +19,15 @@ func TestAgentVerbsAreInTheUsage(t *testing.T) {
 }
 
 func TestReviewValidatesItsArgument(t *testing.T) {
+	_, tasksDir := newRepo(t)
 	cases := []struct {
 		args []string
 		want string
 	}{
-		{[]string{"review"}, "usage: jalon review <issue number>"},
-		{[]string{"review", "abc"}, "is not an issue number"},
-		{[]string{"review", "0"}, "is not an issue number"},
-		{[]string{"review", "12x"}, "is not an issue number"},
-		{[]string{"review", "#12"}, "is not an issue number"},
-		{[]string{"review", "1", "2"}, "usage: jalon review <issue number>"},
+		{[]string{"review", "-dir", tasksDir}, "usage: jalon review <task id>"},
+		{[]string{"review", "-dir", tasksDir, "no-such-task"}, "no task matching"},
+		{[]string{"review", "-dir", tasksDir, "1", "2"}, "usage: jalon review <task id>"},
+		{[]string{"review", "-dir", tasksDir, "-next", "x"}, "takes no argument"},
 	}
 	for _, c := range cases {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {

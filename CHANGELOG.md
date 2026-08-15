@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The agent queue is the `status` field of the task files on origin's default
+  branch, read with git alone: `status: measure` feeds `review -next`,
+  `status: implement` feeds `work -next`, a published `task/<id>` or
+  `work/<id>` branch or a parked wreck takes a task out. The two issue labels,
+  the second identifier they carried and every `gh issue` call are gone.
+  `jalon review` now takes a task id and rewrites that task in place; seed a
+  stub from an issue with `jalon new -issue N -status measure`. `agent/gh.go`
+  keeps `gh pr create` and nothing else.
+
 ### Added
 
 - The pull request `jalon work` opens carries the task's digest, `git diff

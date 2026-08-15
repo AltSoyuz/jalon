@@ -15,12 +15,48 @@ var reviewTOML = strings.Replace(doctorTOML,
 	"  \"jalon digest\",\n  \"make check\",\n",
 	"  \"jalon digest\",\n  \"curl -s http://localhost:8080/healthz\",\n", 1)
 
+const reviewTaskID = "260813-health-endpoint-is-slow"
+
+// newReviewRepo is newRepo plus one queued task, which is the state jalon
+// review starts from: a stub a person wrote, status measure, on origin.
+func newReviewRepo(t *testing.T, cfgTOML string, tasks ...string) string {
+	t.Helper()
+	root := newRepo(t, cfgTOML)
+	if len(tasks) == 0 {
+		tasks = []string{reviewTaskID}
+	}
+	for _, id := range tasks {
+		queueTask(t, root, id, StatusMeasure, "")
+	}
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "queue")
+	mustGit(t, root, "push", "-q", "origin", "main")
+	return root
+}
+
+// queueTask writes a task stub with the given status. It does not commit: the
+// caller decides what origin holds.
+func queueTask(t *testing.T, root, id, status, frontMatter string) {
+	t.Helper()
+	mustWrite(t, filepath.Join(root, ".tasks", id+".md"),
+		"---\nstatus: "+status+"\ncreated: 2026-08-13\n"+frontMatter+"links: []\n---\n\n# Health endpoint is slow\n\n## Context\n\nIt feels slow.\n\n## Decisions\n\n## Log\n")
+}
+
 func runReview(t *testing.T, root string) (ReviewResult, string, string, error) {
 	t.Helper()
 	var out, errb strings.Builder
 	res, err := Review(context.Background(),
 		Env{Root: root, Stdout: &out, Stderr: &errb},
-		ReviewOptions{Issue: 42, TasksDir: filepath.Join(root, ".tasks")})
+		ReviewOptions{TaskID: reviewTaskID})
+	return res, out.String(), errb.String(), err
+}
+
+func runReviewNext(t *testing.T, root string) (ReviewResult, string, string, error) {
+	t.Helper()
+	var out, errb strings.Builder
+	res, err := Review(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{Next: true})
 	return res, out.String(), errb.String(), err
 }
 
@@ -36,13 +72,7 @@ func claudeWith(facts string) string {
 FACTS
   ;;
 *jalon-review-skeptic*) echo "The premise stands." ;;
-*jalon-review-task*)
-  mkdir -p .tasks
-  echo "---" > .tasks/260813-t.md
-  echo "status: proposed" >> .tasks/260813-t.md
-  echo "---" >> .tasks/260813-t.md
-  echo "" >> .tasks/260813-t.md
-  echo "# T" >> .tasks/260813-t.md ;;
+*jalon-review-task*) ` + rewriteTask + ` ;;
 esac`
 }
 
@@ -50,13 +80,13 @@ func TestReviewHappyPath(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	res, out, _, err := runReview(t, root)
 	if err != nil {
 		t.Fatalf("review failed: %v", err)
 	}
-	if res.TaskID != "260813-health-endpoint-is-not-slow" {
+	if res.TaskID != reviewTaskID {
 		t.Errorf("task id = %q", res.TaskID)
 	}
 	if res.PR != "https://example.invalid/pull/7" {
@@ -69,18 +99,33 @@ func TestReviewHappyPath(t *testing.T) {
 	if res.Worktree != "" {
 		t.Errorf("worktree = %q, want it removed on success", res.Worktree)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".jalon", "worktrees", "review-42")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".jalon", "worktrees", "review-"+reviewTaskID)); !os.IsNotExist(err) {
 		t.Error("the worktree directory survived a successful review")
 	}
 	// Three phases, three separate processes.
 	if n := len(s.models(t)); n != 3 {
 		t.Errorf("the model was called %d times, want 3 phases", n)
 	}
-	// The task file is on the branch that was pushed, and nothing else is.
-	if out := gitOut(t, root, "show", "--stat", "--format=", "origin/task/"+res.TaskID); !strings.Contains(out, ".tasks/") {
+	// The same task file, rewritten, is on the branch that was pushed, and
+	// nothing else is.
+	branch := "origin/task/" + reviewTaskID
+	if out := gitOut(t, root, "show", "--stat", "--format=", branch); !strings.Contains(out, ".tasks/"+reviewTaskID+".md") {
 		t.Errorf("the pushed commit does not carry the task file:\n%s", out)
 	} else if strings.Contains(out, ".jalon-review") {
 		t.Errorf("the pushed commit carries the working files:\n%s", out)
+	}
+	// jalon set the status: this is a proposal, and merging is the agreement.
+	file := gitOut(t, root, "show", branch+":.tasks/"+reviewTaskID+".md")
+	if !strings.Contains(file, "\nstatus: proposed\n") {
+		t.Errorf("the task on the branch is not proposed:\n%s", file)
+	}
+	if !strings.Contains(file, "Measured: the endpoint answers in 4 ms") {
+		t.Errorf("the phase's rewrite is not on the branch:\n%s", file)
+	}
+	// The local checkout was never touched.
+	local, _ := os.ReadFile(filepath.Join(root, ".tasks", reviewTaskID+".md"))
+	if strings.Contains(string(local), "proposed") {
+		t.Error("the review wrote into the local checkout")
 	}
 }
 
@@ -90,7 +135,7 @@ func TestReviewToolPolicy(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	if _, _, _, err := runReview(t, root); err != nil {
 		t.Fatal(err)
@@ -130,11 +175,15 @@ func TestReviewToolPolicy(t *testing.T) {
 	if strings.Contains(skeptic, "Write") {
 		t.Errorf("the skeptic must have no write tool:\n%s", skeptic)
 	}
-	// The writing phase may write the task and run jalon, and nothing else.
-	for _, want := range []string{"Bash(jalon new:*)", "Edit(.tasks/**)"} {
+	// The writing phase may edit the task and run jalon append, and nothing
+	// else. It creates no task: the id already exists.
+	for _, want := range []string{"Bash(jalon append:*)", "Edit(.tasks/**)"} {
 		if !strings.Contains(task, want) {
 			t.Errorf("the task phase is missing %s:\n%s", want, task)
 		}
+	}
+	if strings.Contains(task, "jalon new") {
+		t.Errorf("the task phase may create tasks, and there is one already:\n%s", task)
 	}
 	// A Write rule is never matched by Claude Code's file permission checks, so
 	// offering one sends the model down a path that gets denied. This cost a
@@ -146,6 +195,12 @@ func TestReviewToolPolicy(t *testing.T) {
 	for _, forbidden := range []string{"Bash(git", "Bash(gh"} {
 		if strings.Contains(task, forbidden) {
 			t.Errorf("the task phase was handed %s:\n%s", forbidden, task)
+		}
+	}
+	// Every phase is given the task as the person wrote it.
+	for i, c := range calls {
+		if !strings.Contains(c, "It feels slow.") {
+			t.Errorf("call %d was not given the task:\n%s", i, c)
 		}
 	}
 }
@@ -166,11 +221,14 @@ func TestReviewKeepsWhatTheWritingPhasePrinted(t *testing.T) {
 *jalon-review-task*) echo "A Write rule was offered, denied, and I stopped." ;;
 esac`)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
 	if err == nil {
-		t.Fatal("a writing phase that creates no task must fail the review")
+		t.Fatal("a writing phase that changes no task must fail the review")
+	}
+	if !strings.Contains(err.Error(), "changed nothing under .tasks") {
+		t.Errorf("the failure does not say what the phase failed to do: %v", err)
 	}
 	if res.Worktree == "" {
 		t.Fatal("the worktree must be kept, or there is nothing left to read")
@@ -185,6 +243,32 @@ esac`)
 	}
 	if !strings.Contains(err.Error(), reviewDir+"/task.md") {
 		t.Errorf("the failure does not say where to read it: %v", err)
+	}
+}
+
+// One id, rewritten in place. A phase that creates a second task file has
+// misunderstood the job, and git catches it, not a reader.
+func TestReviewRefusesASecondTaskFile(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", `case "$*" in
+*--version*) echo "9.9.9 (Claude Code)" ;;
+*--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
+*jalon-review-facts*)
+  cat <<'FACTS'
+`+factsBlock+`FACTS
+  ;;
+*jalon-review-skeptic*) echo "The premise does not hold." ;;
+*jalon-review-task*) `+rewriteTask+`; printf -- '---\nstatus: proposed\n---\n\n# Second\n' > .tasks/260813-second.md ;;
+esac`)
+	s.add(t, "gh", happyGH)
+	root := newReviewRepo(t, reviewTOML)
+
+	_, _, _, err := runReview(t, root)
+	if err == nil || !strings.Contains(err.Error(), "nothing else") {
+		t.Fatalf("err = %v, want a refusal naming the extra change", err)
+	}
+	if out := gitOut(t, root, "branch", "--list", "task/*"); strings.TrimSpace(out) != "" {
+		t.Errorf("a refused review left a branch behind: %q", out)
 	}
 }
 
@@ -203,7 +287,7 @@ func TestReviewKeepsWhatTheSkepticPrintedOnFailure(t *testing.T) {
 *jalon-review-skeptic*) echo "The budget ran out before I could finish."; exit 1 ;;
 esac`)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
 	if err == nil {
@@ -229,7 +313,7 @@ func TestTheWorktreeIsCutFromOriginNotFromTheLocalBranch(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	// A commit that is on origin and not in this checkout, which is the state
 	// every target repository is in a few days after it is cloned.
@@ -245,7 +329,7 @@ func TestTheWorktreeIsCutFromOriginNotFromTheLocalBranch(t *testing.T) {
 	var out, errb strings.Builder
 	res, err := Review(context.Background(),
 		Env{Root: root, Stdout: &out, Stderr: &errb},
-		ReviewOptions{Issue: 42, TasksDir: filepath.Join(root, ".tasks"), KeepWorktree: true})
+		ReviewOptions{TaskID: reviewTaskID, KeepWorktree: true})
 	if err != nil {
 		t.Fatalf("review failed: %v", err)
 	}
@@ -259,13 +343,33 @@ func TestTheWorktreeIsCutFromOriginNotFromTheLocalBranch(t *testing.T) {
 	}
 }
 
+// The task is read from origin too, for the same reason: what this checkout
+// holds is not what the worktree will hold. A task that was never pushed is
+// refused before a token is spent, and the message says to push it.
+func TestReviewReadsTheTaskFromOrigin(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+	queueTask(t, root, reviewTaskID, StatusMeasure, "")
+	// Local only: written, not committed, not pushed.
+
+	_, _, _, err := runReview(t, root)
+	if err == nil || !strings.Contains(err.Error(), "push it first") {
+		t.Fatalf("err = %v, want a refusal saying the task is not on origin", err)
+	}
+	if len(s.models(t)) > 0 {
+		t.Error("a model call was made for a task origin does not have")
+	}
+}
+
 // Fatal, unlike the unit's pull: running on the tree you already have is the
 // defect this fetch exists to remove.
 func TestAJobRefusesToRunWhenItCannotReachOrigin(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 	mustGit(t, root, "remote", "remove", "origin")
 
 	_, _, _, err := runReview(t, root)
@@ -286,7 +390,7 @@ func TestReviewGateRefusesNarration(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", claudeWith(strings.Repeat("This looks slow to me and I believe it should be improved. ", 8)))
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
 	if err == nil {
@@ -302,7 +406,7 @@ func TestReviewGateRefusesAThinDocument(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", claudeWith("nothing to report"))
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	res, _, _, err := runReview(t, root)
 	if err == nil || !strings.Contains(err.Error(), "stopped too early") {
@@ -321,7 +425,7 @@ func TestReviewReportsSuspectCommandsWithoutStopping(t *testing.T) {
 		"\n\n"+fence+"console\n$ jalon digest x 2>&1 || true\nok\n"+fence+
 		"\n\nPadding so that this document is comfortably past the two hundred byte minimum the gate applies.\n"))
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	res, _, errb, err := runReview(t, root)
 	if err != nil {
@@ -343,13 +447,16 @@ func TestReviewReportsSuspectCommandsWithoutStopping(t *testing.T) {
 	if !strings.Contains(body, "Check these by hand") || !strings.Contains(body, "psql") {
 		t.Errorf("the pull request body does not carry the caveats:\n%s", body)
 	}
+	if !strings.Contains(body, "Cost: 0.75 USD") {
+		t.Errorf("the pull request body does not carry the cost of three phases:\n%s", body)
+	}
 	if res.TaskID == "" {
 		t.Error("the review produced no task")
 	}
 }
 
 // assertStopped checks the three things every failed review must be true of: it
-// wrote no task, it kept its evidence, and it did not run the phases after the
+// pushed nothing, it kept its evidence, and it did not run the phases after the
 // one that failed.
 func assertStopped(t *testing.T, s *stubs, root string, res ReviewResult, wantCalls int) {
 	t.Helper()
@@ -374,8 +481,8 @@ func TestReviewRefusesAnExistingWorktree(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
-	mustWrite(t, filepath.Join(root, ".jalon", "worktrees", "review-42", "facts.md"), "earlier evidence")
+	root := newReviewRepo(t, reviewTOML)
+	mustWrite(t, filepath.Join(root, ".jalon", "worktrees", "review-"+reviewTaskID, "facts.md"), "earlier evidence")
 
 	_, _, _, err := runReview(t, root)
 	if err == nil {
@@ -388,27 +495,29 @@ func TestReviewRefusesAnExistingWorktree(t *testing.T) {
 	if len(s.models(t)) > 0 {
 		t.Error("a model call was made despite the collision")
 	}
-	if b, _ := os.ReadFile(filepath.Join(root, ".jalon", "worktrees", "review-42", "facts.md")); string(b) != "earlier evidence" {
+	if b, _ := os.ReadFile(filepath.Join(root, ".jalon", "worktrees", "review-"+reviewTaskID, "facts.md")); string(b) != "earlier evidence" {
 		t.Error("the earlier evidence was destroyed")
 	}
 }
 
-func TestReviewRefusesAClosedIssue(t *testing.T) {
+// A done task is either already implemented or was closed on purpose; a review
+// of it would propose work nobody asked for.
+func TestReviewRefusesADoneTask(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
-	s.add(t, "gh", `case "$1 $2" in
-"auth status") echo "Logged in" ;;
-"api -i")      echo "X-Oauth-Scopes: repo" ;;
-"issue view")  printf '{"number":42,"title":"x","body":"y","url":"u","state":"CLOSED"}' ;;
-esac`)
+	s.add(t, "gh", happyGH)
 	root := newRepo(t, reviewTOML)
+	queueTask(t, root, reviewTaskID, "done", "")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "done")
+	mustGit(t, root, "push", "-q", "origin", "main")
 
 	_, _, _, err := runReview(t, root)
-	if err == nil || !strings.Contains(err.Error(), "closed") {
-		t.Fatalf("err = %v, want a refusal naming the closed issue", err)
+	if err == nil || !strings.Contains(err.Error(), "is done") {
+		t.Fatalf("err = %v, want a refusal naming the done task", err)
 	}
 	if len(s.models(t)) > 0 {
-		t.Error("a model call was made on a closed issue")
+		t.Error("a model call was made on a done task")
 	}
 }
 
@@ -418,7 +527,7 @@ func TestReviewDailyCap(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, strings.Replace(reviewTOML, "daily_job_cap = 10", "daily_job_cap = 1", 1))
+	root := newReviewRepo(t, strings.Replace(reviewTOML, "daily_job_cap = 10", "daily_job_cap = 1", 1))
 
 	if _, _, _, err := runReview(t, root); err != nil {
 		t.Fatalf("the first review failed: %v", err)
@@ -432,6 +541,8 @@ func TestReviewDailyCap(t *testing.T) {
 		t.Errorf("counter = %q, want it to end in the count", b)
 	}
 
+	// A second review of the same task by hand: the cap refuses before the
+	// worktree, so the branch on origin is not what stops it.
 	_, _, _, err = runReview(t, root)
 	if err == nil || !strings.Contains(err.Error(), "daily cap") {
 		t.Fatalf("err = %v, want the cap to refuse the second job", err)
@@ -446,11 +557,11 @@ func TestReviewRefusesWithoutConfig(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, "")
+	root := newReviewRepo(t, "")
 
 	_, _, _, err := runReview(t, root)
-	if err == nil || !strings.Contains(err.Error(), "preflight") {
-		t.Fatalf("err = %v, want a preflight refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "agent.toml") {
+		t.Fatalf("err = %v, want a refusal naming the missing configuration", err)
 	}
 	if len(s.models(t)) > 0 {
 		t.Error("a model call was made on a red base")
@@ -463,7 +574,7 @@ func TestNotifyRunsOneCommand(t *testing.T) {
 	s.add(t, "gh", happyGH)
 	// Shell builtins only: PATH is restricted in these tests, and the point here
 	// is that the message reaches the command's stdin, not that coreutils exist.
-	root := newRepo(t, strings.Replace(reviewTOML,
+	root := newReviewRepo(t, strings.Replace(reviewTOML,
 		"[probes]", "[notify]\ncommand = 'while IFS= read -r l; do echo \"$l\" >> notified.txt; done'\n\n[probes]", 1))
 
 	if _, _, _, err := runReview(t, root); err != nil {
@@ -473,8 +584,11 @@ func TestNotifyRunsOneCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the notification command did not run: %v", err)
 	}
-	if !strings.Contains(string(b), "260813-health-endpoint-is-not-slow") {
+	if !strings.Contains(string(b), reviewTaskID) {
 		t.Errorf("the notification does not name the task: %q", b)
+	}
+	if !strings.Contains(string(b), "cost 0.75 USD") {
+		t.Errorf("the notification does not carry the cost: %q", b)
 	}
 }
 
@@ -494,7 +608,7 @@ func TestReviewTellsThePhaseItsProbes(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
 	if _, _, _, err := runReview(t, root); err != nil {
 		t.Fatal(err)
@@ -515,32 +629,30 @@ func TestReviewTellsThePhaseItsProbes(t *testing.T) {
 // for the criterion: doctor runs the repository's whole test suite, and a tick
 // that finds nothing would throw that away. Measured at ~3.6s per tick on a
 // real server before this was fixed.
-func TestReviewNextWithNothingLabelled(t *testing.T) {
+func TestReviewNextWithNothingQueued(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
-	s.add(t, "gh", `case "$1 $2" in
-"auth status") echo "Logged in" ;;
-"api -i")      echo "X-Oauth-Scopes: repo" ;;
-"issue list")  printf '[]' ;;
-esac`)
+	s.add(t, "gh", happyGH)
 	// A criterion that leaves a trace, so "did not run" is observable rather
 	// than assumed.
 	root := newRepo(t, strings.Replace(reviewTOML, `command = "true"`, `command = "touch criterion-ran"`, 1))
+	queueTask(t, root, reviewTaskID, "todo", "")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "a task nobody queued")
+	mustGit(t, root, "push", "-q", "origin", "main")
 
-	var out, errb strings.Builder
-	res, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
-		ReviewOptions{Next: true})
+	res, _, errb, err := runReviewNext(t, root)
 	if err != nil {
 		t.Fatalf("an empty queue must not be a failure: %v", err)
 	}
 	if res.TaskID != "" {
 		t.Errorf("task id = %q, want none", res.TaskID)
 	}
-	if !strings.Contains(errb.String(), "nothing to review") {
-		t.Errorf("stderr must say why nothing happened:\n%s", errb.String())
+	if !strings.Contains(errb, "nothing to review") {
+		t.Errorf("stderr must say why nothing happened:\n%s", errb)
 	}
 	if len(s.models(t)) > 0 {
-		t.Error("a model call was made with nothing labelled")
+		t.Error("a model call was made with nothing queued")
 	}
 	// The whole point of the reorder.
 	if _, err := os.Stat(filepath.Join(root, "criterion-ran")); !os.IsNotExist(err) {
@@ -550,112 +662,71 @@ esac`)
 	if _, err := os.Stat(filepath.Join(root, ".jalon", "agent-jobs-today")); !os.IsNotExist(err) {
 		t.Error("an empty queue consumed a job from the daily cap")
 	}
-}
-
-// A broken forge on the -next path is reported before the preflight has had a
-// chance to diagnose it, so the message has to point at the verb that will.
-func TestReviewNextWithABrokenForge(t *testing.T) {
-	s := newStubs(t)
-	s.add(t, "claude", happyClaude)
-	s.add(t, "gh", `case "$1 $2" in
-"issue list") echo "gh: could not reach github.com" >&2; exit 1 ;;
-*) echo "Logged in" ;;
-esac`)
-	root := newRepo(t, reviewTOML)
-
-	var out, errb strings.Builder
-	_, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
-		ReviewOptions{Next: true})
-	if err == nil {
-		t.Fatal("a forge failure was accepted")
-	}
-	if !strings.Contains(err.Error(), "jalon doctor") {
-		t.Errorf("err = %v, want it to point at doctor", err)
-	}
-	if len(s.models(t)) > 0 {
-		t.Error("a model call was made despite an unreadable queue")
+	// And no forge call at all: the queue is git.
+	if n := len(s.of(t, "gh")); n != 0 {
+		t.Errorf("reading the queue made %d gh calls, want 0", n)
 	}
 }
 
-// With several labelled issues it takes the oldest, so the queue drains in
-// order rather than by whichever the forge happened to list first.
-func TestReviewNextTakesTheOldest(t *testing.T) {
+// With several queued tasks it takes the oldest, so the queue drains in order;
+// it skips the ones already published (a branch on origin) and the ones whose
+// wreck is parked, without a label or a forge call for either.
+func TestReviewNextTakesTheOldestUnpublished(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
-	s.add(t, "gh", `case "$1 $2" in
-"auth status") echo "Logged in" ;;
-"api -i")      echo "X-Oauth-Scopes: repo" ;;
-"issue list")  printf '[{"number":42},{"number":7},{"number":19}]' ;;
-"issue view")  printf '{"number":7,"title":"oldest","body":"b","url":"u","state":"OPEN"}' ;;
-"pr create")   echo "https://example.invalid/pull/1" ;;
-"issue edit")  echo "edited" ;;
-esac`)
-	root := newRepo(t, reviewTOML)
+	s.add(t, "gh", happyGH)
+	root := newReviewRepo(t, reviewTOML,
+		"260810-published", "260811-parked", "260812-oldest-free", "260813-younger")
+	// 260810 has its proposal branch on origin already.
+	mustGit(t, root, "push", "-q", "origin", "main:task/260810-published")
+	// 260811 failed last time and its wreck sits in .jalon/failed.
+	mustWrite(t, filepath.Join(root, ".jalon", "failed", "review-260811-parked", "x"), "")
 
-	var out, errb strings.Builder
-	if _, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
-		ReviewOptions{Next: true}); err != nil {
+	res, _, _, err := runReviewNext(t, root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range s.of(t, "gh") {
-		if strings.Contains(c, "issue view 7") {
-			return
-		}
+	if res.TaskID != "260812-oldest-free" {
+		t.Errorf("task = %q, want the oldest that is neither published nor parked", res.TaskID)
 	}
-	t.Errorf("want issue 7 reviewed, got calls:\n%s", strings.Join(s.of(t, "gh"), "\n"))
+	if n := len(s.of(t, "gh")); n != 3 {
+		// auth status, api -i for doctor, pr create: none for the queue.
+		t.Errorf("gh was called %d times, want 3 (none for the queue):\n%s", n, strings.Join(s.of(t, "gh"), "\n"))
+	}
 }
 
-// The label is the queue. A finished review that leaves it in place is measured
-// again on the next tick, forever: on an hourly timer that spends the whole
-// daily cap re-reviewing one issue. Found live, with two near identical tasks
-// produced from one issue before the timer was even armed.
+// A published review leaves the queue by existing as a branch: without that
+// the same task is measured again on the next tick, forever, spending the
+// daily cap on one question. Found live before the timer was even armed.
 func TestReviewLeavesTheQueueWhenItIsDone(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
-	if _, _, _, err := runReview(t, root); err != nil {
+	if res, _, _, err := runReviewNext(t, root); err != nil || res.TaskID != reviewTaskID {
+		t.Fatalf("first tick: %v %q", err, res.TaskID)
+	}
+	res, _, errb, err := runReviewNext(t, root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range s.of(t, "gh") {
-		if strings.Contains(c, "issue edit 42 --remove-label "+LabelMeasure) {
-			return
-		}
+	if res.TaskID != "" {
+		t.Errorf("the second tick measured %q again", res.TaskID)
 	}
-	t.Errorf("the issue was never taken out of the queue:\n%s", strings.Join(s.of(t, "gh"), "\n"))
-}
-
-// If the label cannot be removed the work is still published, but the next tick
-// will repeat it, so the message has to say so and give the manual command.
-func TestReviewSaysWhenItCannotLeaveTheQueue(t *testing.T) {
-	s := newStubs(t)
-	s.add(t, "claude", happyClaude)
-	s.add(t, "gh", `case "$1 $2" in
-"auth status") echo "Logged in" ;;
-"api -i")      echo "X-Oauth-Scopes: repo" ;;
-"issue view")  printf '{"number":42,"title":"t","body":"b","url":"u","state":"OPEN"}' ;;
-"pr create")   echo "https://example.invalid/pull/7" ;;
-"issue edit")  echo "no permission" >&2; exit 1 ;;
-esac`)
-	root := newRepo(t, reviewTOML)
-
-	res, _, errb, err := runReview(t, root)
-	if err != nil {
-		t.Fatalf("a label failure must not lose the published work: %v", err)
+	if !strings.Contains(errb, "already published or parked") {
+		t.Errorf("stderr must say why the queued task was skipped:\n%s", errb)
 	}
-	if res.PR == "" {
-		t.Error("the pull request was not reported")
-	}
-	if !strings.Contains(errb, "measure it again") || !strings.Contains(errb, "--remove-label") {
-		t.Errorf("the warning must name the consequence and the manual fix:\n%s", errb)
+	if n := len(s.models(t)); n != 3 {
+		t.Errorf("the model was called %d times over two ticks, want 3", n)
 	}
 }
 
-// One failure must cost one issue, not the night. Before this, a failed job
+// One failure must cost one item, not the night. Before this, a failed job
 // kept its worktree where doctor looks, doctor refused the next job, and an
 // hourly timer stayed frozen until a person came back. The wreck is now parked
-// under .jalon/failed, the issue leaves the queue, and the next tick runs.
+// under .jalon/failed, which takes its task out of the queue, and the next
+// tick runs the next item.
 func TestAFailedReviewIsParkedAndTheNextJobRuns(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", `case "$*" in
@@ -664,9 +735,9 @@ func TestAFailedReviewIsParkedAndTheNextJobRuns(t *testing.T) {
 *jalon-review-facts*) echo "The budget ran out."; exit 1 ;;
 esac`)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 
-	res, _, errb, err := runReview(t, root)
+	res, _, _, err := runReviewNext(t, root)
 	if err == nil {
 		t.Fatal("a failing facts phase must fail the review")
 	}
@@ -679,27 +750,22 @@ esac`)
 	if entries, _ := os.ReadDir(filepath.Join(root, ".jalon", "worktrees")); len(entries) != 0 {
 		t.Errorf("the running-jobs directory is not empty after the failure: %v", entries)
 	}
-	// Out of the queue, and the message says how to put it back.
-	var left bool
-	for _, c := range s.of(t, "gh") {
-		if strings.Contains(c, "issue edit 42 --remove-label "+LabelMeasure) {
-			left = true
-		}
-	}
-	if !left {
-		t.Error("the failed issue was left in the queue, so the next tick would repeat the failure")
-	}
-	if !strings.Contains(errb, "--add-label "+LabelMeasure) {
-		t.Errorf("the message must say how to retry:\n%s", errb)
-	}
 	// The next job is not blocked: doctor warns, it does not fail.
 	r, _, _ := runDoctor(t, root)
 	if c := state(t, r, "git"); c.State != Warn {
 		t.Errorf("git = %s after a parked failure, want warn: the next job must run", c.State)
 	}
-	// And a second job of the same name parks over the first wreck.
+	// And the wreck keeps its task out of the queue: the next tick finds
+	// nothing, rather than failing the same way again.
+	if res, _, _, err := runReviewNext(t, root); err != nil || res.TaskID != "" {
+		t.Errorf("second tick: err %v, task %q; the parked task must be skipped", err, res.TaskID)
+	}
+	if n := len(s.models(t)); n != 1 {
+		t.Errorf("the model was called %d times over two ticks, want 1", n)
+	}
+	// Reviewing it by hand parks over the first wreck rather than beside it.
 	if _, _, _, err := runReview(t, root); err == nil {
-		t.Fatal("the second run must fail the same way")
+		t.Fatal("the run by hand must fail the same way")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(root, ".jalon", "failed")); len(entries) != 1 {
 		t.Errorf("want one wreck per job name, got %d", len(entries))
@@ -712,7 +778,7 @@ func TestTheFailedDirectoryHasACap(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", happyClaude)
 	s.add(t, "gh", happyGH)
-	root := newRepo(t, reviewTOML)
+	root := newReviewRepo(t, reviewTOML)
 	for i := 0; i < maxFailed; i++ {
 		mustWrite(t, filepath.Join(root, ".jalon", "failed", fmt.Sprintf("review-%d", i), "x"), "")
 	}
@@ -723,5 +789,24 @@ func TestTheFailedDirectoryHasACap(t *testing.T) {
 	}
 	if n := len(s.models(t)); n != 0 {
 		t.Errorf("the model was called %d times before the refusal", n)
+	}
+}
+
+// setStatus is a line replacement, not a parser: every other byte survives.
+func TestSetStatus(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "t.md")
+	mustWrite(t, p, "---\nstatus: measure\ncreated: 2026-08-13\nunknown: kept as is\nlinks: [a.go]\n---\n\n# T\n\n## Context\n\nbody: not front matter\n")
+	if err := setStatus(p, "proposed"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	want := "---\nstatus: proposed\ncreated: 2026-08-13\nunknown: kept as is\nlinks: [a.go]\n---\n\n# T\n\n## Context\n\nbody: not front matter\n"
+	if string(b) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b, want)
+	}
+	mustWrite(t, p, "# no front matter\n")
+	if err := setStatus(p, "proposed"); err == nil {
+		t.Error("a file without front matter must be refused, not rewritten")
 	}
 }

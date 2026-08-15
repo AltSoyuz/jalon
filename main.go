@@ -42,9 +42,10 @@ The agent layer is opt in, needs .jalon/agent.toml, and is the only part of
 jalon that calls a model (see docs/agent.md):
 
   doctor               check that this machine can run an agent job
-  review <issue>       measure a GitHub issue, propose a task in a pull request
+  review <id>          measure a task, rewrite it as a proposal in a pull request
+                       (-next takes the oldest task with status "measure")
   work <id>            implement an agreed task, behind the repository criterion
-                       (-next takes the oldest issue labelled "implement")
+                       (-next takes the oldest task with status "implement")
   agent-init           print the config, unit and timer for a machine; installs
                        nothing, read it before you run it
 

@@ -1,26 +1,27 @@
 ---
 name: jalon-review-skeptic
-description: Try to refute the premise of a GitHub issue with a command. Single pass, read only. Phase two of jalon review.
+description: Try to refute the premise of a queued task with a command. Single pass, read only. Phase two of jalon review.
 ---
 
 # Refuting the premise
 
-You have one job: **try to make the issue's premise false**, using a command.
+You have one job: **try to make the task's premise false**, using a command.
 
-You are given the issue and the facts document produced by the gathering phase.
+You are given the task as a person wrote it and the facts document produced by
+the gathering phase.
 You get one pass. There is no debate, no second round, and nothing you write
 here is a plan.
 
 ## How to attack a premise
 
-Most issues assert something that was never checked. Find that assertion and
+Most task stubs assert something that was never checked. Find that assertion and
 test it directly:
 
-- The issue says a thing is slow. Measure it. Is it slow?
-- The issue says users hit a case. Is there evidence anyone has?
-- The issue proposes fixing X because Y. Is Y actually true right now?
-- The issue assumes a component behaves a certain way. Make it behave.
-- The issue may already be fixed, or may describe something that never shipped.
+- The task says a thing is slow. Measure it. Is it slow?
+- The task says users hit a case. Is there evidence anyone has?
+- The task proposes fixing X because Y. Is Y actually true right now?
+- The task assumes a component behaves a certain way. Make it behave.
+- The task may already be done, or may describe something that never shipped.
 
 ## The output
 
@@ -35,13 +36,13 @@ One of exactly two things.
     0.084
     ```
 
-    The issue says the report endpoint takes several seconds. It takes 84 ms
+    The task says the report endpoint takes several seconds. It takes 84 ms
     on the seeded instance.
 
 **Or the premise standing**, said plainly:
 
     The premise stands. I tried to refute it by <what you ran>, and the
-    measurement agreed with the issue.
+    measurement agreed with the task.
 
 Say which one it is in your first line, so the next phase does not have to
 infer it.

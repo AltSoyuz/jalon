@@ -1,6 +1,6 @@
 ---
 name: jalon-review-facts
-description: Gather the measured facts about a GitHub issue by running probes and pasting their output verbatim. Phase one of jalon review.
+description: Gather the measured facts about a queued task by running probes and pasting their output verbatim. Phase one of jalon review.
 ---
 
 # Gathering facts
@@ -11,10 +11,11 @@ would" or "the fix is", stop and delete the sentence.
 
 ## Start from the digest, never from a cold read
 
-Run `jalon list`, then `jalon digest <id>` on anything related. A digest costs
-five to twelve thousand tokens; exploring a repository cold costs twenty to
-forty thousand and tells you less. If no task relates to this issue, say so in
-one line and move on.
+Run `jalon digest <id>` on the task you were given: it inlines its linked
+files, its commits and its issue thread when it names one. Then `jalon list`
+and a digest of anything related. A digest costs five to twelve thousand
+tokens; exploring a repository cold costs twenty to forty thousand and tells
+you less. If no other task relates, say so in one line and move on.
 
 ## Every claim carries the command that established it
 
@@ -96,7 +97,7 @@ measure it, and that is worth writing down too.
 
 Write, in this order:
 
-1. **What the issue claims**, in one or two lines.
+1. **What the task claims**, in one or two lines: its title and its Context are what a person thinks; that is the premise.
 2. **What was measured**, as command blocks with a line of context each.
 3. **What could not be measured**, and why.
 

@@ -13,7 +13,7 @@ Two things never happen on their own: an idea is never confronted with measured
 reality before it is designed, and the backlog is never worked down. This layer
 automates the first one.
 
-An issue becomes a **measured task proposal**: what was observed, what that
+A task stub becomes a **measured task proposal**: what was observed, what that
 contradicts in the original idea, what it would cost, and only then a proposed
 line of work. Never the plan first.
 
@@ -22,27 +22,37 @@ conventional:
 
 | Gate | Enforced by |
 |---|---|
-| the decision to implement | `jalon work` builds only what a person named, by id or by the `implement` label |
+| the decision to implement | `jalon work` builds only what a person named, by id or by setting a task's status to `implement` |
 | the merge | branch protection on `main`, enforced on administrators too, and jalon has no merge call |
 | production | deploy needs sudo; the agent user has none |
 
 ## The stages
 
 ```
-issue ──▶ triage ──▶ review ──▶ [a person merges] ──▶ work ──▶ [merge] ──▶ [deploy]
- measure  (not yet)  (built)     and labels it        (built)
-                                    implement
+task stub ──▶ review ──▶ [a person merges] ──▶ work ──▶ [merge] ──▶ [deploy]
+ status:      (built)     and sets status:    (built)
+ measure                  implement
 ```
 
-The two labels are the queues, and they are the whole remote control. A person
-adds one from the forge's phone app; the timer only delivers it. Nothing here
-decides on its own what to measure or what to build.
+The `status` field of the task file is the queue, and it is the whole remote
+control. A person sets it to `measure` or `implement` by editing one line and
+committing it to `main`, from the forge's phone app or a shell; the timer only
+delivers it. Nothing here decides on its own what to measure or what to build.
 
-Issues are the queue between servers. They carry no state beyond labels, so
-there is nothing to synchronize and nothing to reconcile.
+The queue is read from origin's default branch with git alone: `git grep` on
+`FETCH_HEAD` for the status, `git ls-remote` for what is already published.
+There is no label, no forge call and no state outside git, so there is nothing
+to synchronize and nothing to reconcile. The first version used two issue
+labels and carried a second identifier through every job; reconciling the two
+cost a whole task, and one id now runs from capture to done.
 
-**Built today: `jalon doctor`, `jalon review` and `jalon work`.** `triage` is
-designed but not written; see the task in `.tasks/`.
+A stub is a title and a Context saying what you think, written by hand or by
+`jalon new -issue N`, which seeds it from a forge issue in one call. Push it
+with `status: measure` and the next tick measures it.
+
+**Built today: `jalon doctor`, `jalon review` and `jalon work`.** There is no
+`triage`: queueing a stub is one line a person edits, and a model deciding what
+deserves measuring would be the one thing this layer refuses to automate.
 
 The two model-spending verbs answer two different questions, and using one for
 the other's job is waste rather than error. `review` is for an idea you doubt:
@@ -86,15 +96,18 @@ right flags; none of that catches an expired token. On a real server this gap
 cost two failures in a row, both discovered only after a review had written its
 facts and paid for three model calls.
 
-## `jalon review <issue-number>`
+## `jalon review <task-id>`
 
 Runs on the server that hosts the target app, so the probes are local `curl`
 calls against a running instance. That locality is the feature: it is what makes
 the facts facts.
 
-1. Load the config, run the `doctor` checks, refuse on any failure.
-2. Read the issue: one `gh issue view`.
-3. `git fetch origin <default_branch>`, then create an ephemeral git worktree
+1. Load the config, `git fetch origin <default_branch>`, and read the task
+   from what that retrieved: `-next` takes the oldest task whose status is
+   `measure` that has no `task/<id>` branch on origin and no wreck parked in
+   `.jalon/failed/`. Nothing queued is a success, not a failure. Then the
+   `doctor` checks, refuse on any failure.
+2. Create an ephemeral git worktree
    detached from what that retrieved, and materialize the embedded skills into
    its `.claude/skills/`. The job runs on what the forge has, never on what this
    clone happens to hold: nothing updates a target repository's checkout, since
@@ -112,19 +125,26 @@ the facts facts.
    the pull request body for a person to check, because three live runs stopped
    on how a command was written while the measurements were sound every time.
 6. **The skeptic.** A second, separate read-only invocation whose only task is
-   to refute the issue's premise with a command. One pass, no loop, no debate.
-7. **Phase 2, the task file.** The model may now write, and writes exactly one
-   thing: the jalon task, ordered measured / contradicted / cost / plan. Its
-   file permission is `Edit(.tasks/**)`; a `Write(...)` rule is never matched by
-   Claude Code's checks, so offering one only sends the model down a path that
-   gets denied.
-8. jalon does every mutation itself: commit, push the branch, open the pull
-   request. The model is never handed a push.
+   to refute the task's premise with a command. One pass, no loop, no debate.
+7. **Phase 2, the task file.** The model may now write, and rewrites exactly
+   one thing: the task it was given, in place, ordered measured / contradicted /
+   cost / plan. Its file permission is `Edit(.tasks/**)`; a `Write(...)` rule
+   is never matched by Claude Code's checks, so offering one only sends the
+   model down a path that gets denied. git then says what happened under
+   `.tasks/`: that one file modified and nothing else, or the job stops. jalon
+   sets `status: proposed` itself.
+8. jalon does every mutation itself: commit, push the `task/<id>` branch, open
+   the pull request. The model is never handed a push. The branch is also what
+   takes the task out of the queue: `main` is protected and jalon has no merge
+   call, so a branch is the only mark it can leave, and a pull request closed
+   without merging keeps the task out until someone deletes the branch, which
+   is the right default because a person looked and said no.
 
 The result is a pull request containing only the task file, with
 `status: proposed`. That is not a new mechanism: it is the one already
 documented in [`workflow.md`](./workflow.md) for agreeing on a task before
-anyone writes code. Merging **is** the agreement.
+anyone writes code. Merging **is** the agreement; setting the status to
+`implement` afterwards is the order to build.
 
 Each phase leaves what it printed in `.jalon-review/`, as `facts.md`,
 `skeptic.md` and `task.md`, written before the phase's error is checked. A phase
@@ -136,8 +156,8 @@ error names its path and the command that removes it. The evidence of what went
 wrong is the only thing worth having at that point, and deleting it to look tidy
 would throw away the bug report. Parking it is what keeps the evidence without
 freezing the machine: `.jalon/worktrees/` is empty again, so the next tick runs
-the next item, and the failed issue leaves the queue with a message saying how
-to put it back. `doctor` warns while wrecks are kept; at ten, the next job
+the next item, and the wreck keeps its task out of the queue until it is read
+and removed, so a failing task is retried by a person and not by the clock. `doctor` warns while wrecks are kept; at ten, the next job
 refuses until some are removed, because a machine failing every tick must stop
 within a night and not fill the disk.
 
@@ -146,52 +166,47 @@ within a night and not fill the disk.
 Implements one task you have already agreed to, and opens a pull request only if
 the repository's own criterion passes.
 
-It never takes an issue number as the thing to build: the merged task **is** the
+It never takes an issue as the thing to build: the merged task **is** the
 agreement, and reading an issue directly would duplicate `review` and remove the
 gate the whole design rests on.
 
-`jalon work -next` takes the oldest open issue labelled `implement` and builds
-**the task that names it**, through the `issue:` key the review wrote. That is
-not autonomy: the label is a button a person pressed, and the timer only
-delivers it. jalon still never chooses what to build, and an issue whose number
-no task carries is a refusal naming both rather than a guess.
+`jalon work -next` takes the oldest task on origin whose status is `implement`
+and that has no `work/<id>` branch and no parked wreck. That is not autonomy:
+the status is a button a person pressed, and the timer only delivers it. jalon
+still never chooses what to build.
 
-The point of it is reach, not automation. The labels are the whole remote
+The point of it is reach, not automation. The status field is the whole remote
 control: with the forge's phone app you can capture an idea, agree to a task and
 order it built, without a shell, an SSH key, or a network route to the server.
 
-1. On `-next`, resolve the queue first, before the preflight: a tick that finds
-   nothing labelled must not pay for the repository's whole test suite and throw
-   the result away.
+1. Fetch origin and read the task from what that retrieved, `-next` resolving
+   the queue first, before the preflight: a tick that finds nothing queued must
+   not pay for the repository's whole test suite and throw the result away. A
+   task that is not on origin, or is `done`, fails here, before a single token
+   is spent.
 2. The `doctor` checks, refuse on any failure. This runs the criterion **before**
    the model touches anything, which is what makes the same criterion meaningful
    afterwards: a red result at the end belongs to this job, not to a base that
    was already broken.
-3. Read the task from `.tasks/<id>.md`. A missing or `done` task fails here,
-   before a single token is spent.
-4. Ephemeral worktree, skills materialized, exactly as `review`.
-5. **One phase.** It may edit the checkout and run the commands in
+3. Ephemeral worktree, skills materialized, exactly as `review`.
+4. **One phase.** It may edit the checkout and run the commands in
    `probes.allowed`, which is how it iterates on the criterion inside its own
    invocation. jalon runs no loop of its own: a retry here would be an unbounded
    cost with no bound on quality. Its file permission is `Edit`, never a `Write`
    rule, for the reason given above.
-6. **git decides whether anything happened.** A phase that says it implemented
+5. **git decides whether anything happened.** A phase that says it implemented
    something and changed no file is caught here, not by a reader.
-7. **The criterion is the gate, and the whole gate.** Where `review` needed Go
+6. **The criterion is the gate, and the whole gate.** Where `review` needed Go
    code to check that the model had measured, because that cannot be verified
    mechanically, this either exits 0 or it does not. No judgement on the model's
    prose anywhere.
-8. jalon commits the checkout minus its own scratch, pushes, opens the pull
-   request. The commit message carries `closes <id>`, so merging closes the task
-   through the existing hook, and the pull request body carries `Closes #N` when
-   the task names an issue, so the same merge closes that too. Both are the
-   existing mechanisms of jalon and of the forge; jalon carries two identifiers
-   and keeps no state about either. The model is never handed git or `gh`.
-
-   A task written by hand names no issue, and then there is nothing to close. A
-   review's task names one because the writing phase runs `jalon new -issue N`;
-   if it forgets, the review warns and still publishes, because a measured
-   review is worth more than a missing convenience line.
+7. jalon commits the checkout minus its own scratch, pushes `work/<id>`, opens
+   the pull request. The commit message carries `closes <id>`, so merging closes
+   the task through the existing hook, and the pull request body carries
+   `Closes #N` when the task's front matter names an issue, so the same merge
+   closes that too. Both are the existing mechanisms of jalon and of the forge;
+   jalon keeps no state about either. The model is never handed git or `gh`. As
+   with `review`, the branch is what takes the task out of the queue.
 
 The pull request body is what a person reads on a phone in the morning, so it
 is ordered the way a digest is: `jalon digest -offline <id>` run in the
@@ -402,19 +417,20 @@ also run fewer than ten times over the life of the tool. Emitting text costs
 sixty lines, is inspectable before it runs, and `diff`s against what is
 deployed.
 
-The timer runs `jalon review -next`: the oldest open issue labelled `measure`.
-Nothing labelled is a success, not a failure, so an idle queue does not turn the
-unit red every hour. Until `jalon triage` exists, apply that label by hand.
+The timer runs `jalon review -next` then `jalon work -next`: the oldest task
+with status `measure`, then the oldest with status `implement`, as origin has
+them. Nothing queued is a success, not a failure, so an idle queue does not
+turn the unit red every hour.
 
-**The label is the queue, and a finished review removes it.** Without that the
-same issue is measured again on the next tick, forever, spending the daily cap
-on one question — which is exactly what happened here before the timer was even
-armed: one issue, two near-identical task proposals. If the label cannot be
-removed the work is still published, and the message says so and gives the
-command, because the alternative is a silent loop.
+**The status is the queue, and a published branch leaves it.** Without that the
+same task is measured again on the next tick, forever, spending the daily cap
+on one question, which is exactly what happened here before the timer was even
+armed: one issue, two near-identical task proposals. The branch is the mark
+because it is the only one jalon can leave: `main` is protected and there is no
+merge call.
 
-A failed job leaves the queue too, and its wreck is parked out of `doctor`'s
-way. The first version kept the label and the worktree in place so that a
+A failed job leaves the queue too, for as long as its wreck is parked in
+`.jalon/failed/`. The first version kept the worktree in place so that a
 failure would stop the timer; on a real timer that turned one failure into a
 frozen night. Now one failure costs one item, the wreck is still there to read,
 and the cap of ten wrecks is what stops a machine failing in a loop.
