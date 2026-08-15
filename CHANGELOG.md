@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check on every tick would be a standing bill. Everything else doctor checks
   establishes that a binary exists and takes the right flags, which does not
   catch an expired token.
+- An issue whose work ships now closes itself. `jalon review` has its writing
+  phase record the issue number on the task (`jalon new -issue N`, the core verb
+  that already owns that key), and `jalon work` puts `Closes #N` in its pull
+  request body, so the merge that lands the implementation closes the issue.
+  That is the forge's own mechanism and jalon's own hook doing the work: jalon
+  carries two identifiers and keeps no state about either, so there is still
+  nothing to synchronize. A task written by hand names no issue and closes
+  none, and a review whose premise was refuted is still closed by a person,
+  because telling "do this" from "do nothing" would mean judging the model's
+  prose in Go.
 - `hooks/post-merge` reads every message a pull brought in (`ORIG_HEAD..HEAD`)
   instead of only the tip commit. One `git pull` routinely lands several merges,
   and the old form closed the last one's task while the others stayed open with

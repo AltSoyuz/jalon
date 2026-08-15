@@ -161,7 +161,15 @@ not, and at the current rate a queue would have nothing to drain.
    prose anywhere.
 7. jalon commits the checkout minus its own scratch, pushes, opens the pull
    request. The commit message carries `closes <id>`, so merging closes the task
-   through the existing hook. The model is never handed git or `gh`.
+   through the existing hook, and the pull request body carries `Closes #N` when
+   the task names an issue, so the same merge closes that too. Both are the
+   existing mechanisms of jalon and of the forge; jalon carries two identifiers
+   and keeps no state about either. The model is never handed git or `gh`.
+
+   A task written by hand names no issue, and then there is nothing to close. A
+   review's task names one because the writing phase runs `jalon new -issue N`;
+   if it forgets, the review warns and still publishes, because a measured
+   review is worth more than a missing convenience line.
 
 What the criterion proves is exactly what it proves. On this repository that is
 `make check`, which is a real bar. On a static site it is `npm ci && npm run

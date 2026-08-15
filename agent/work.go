@@ -121,6 +121,13 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 
 	body := fmt.Sprintf("Implementation of `%s`, written by `jalon work`.\n\nThe criterion `%s` passed on this branch before the pull request existed. That is the only thing it proves: read the diff.\n\nFiles changed: %d\n",
 		opt.TaskID, cfg.Criterion, len(changed))
+	// The forge's own mechanism does the closing: a merged pull request saying
+	// this closes the issue. jalon carries the number and nothing else, so there
+	// is no polling and no state to reconcile. A task written by hand carries no
+	// issue, and then there is nothing to close.
+	if n := issueOf(task); n != "" {
+		body += "\nCloses #" + n + "\n"
+	}
 	res.PR, _ = createPR(ctx, wt.path, "Work: "+opt.TaskID, body)
 
 	fmt.Fprintf(env.Stdout, "%s %s\n", opt.TaskID, res.PR)
@@ -157,6 +164,37 @@ func readTask(root, id string) (string, error) {
 		return "", fmt.Errorf("task %s is done; work implements a task that is still open", id)
 	}
 	return string(b), nil
+}
+
+// issueOf reads the one front matter key work needs, and returns "" when the
+// task carries none. Scanning for a single key rather than calling the core's
+// parser is the accepted cost of the package boundary, the same trade as the
+// gh wrapper in gh.go: agent cannot import package main, and a second full
+// front matter implementation here would be a second thing to keep true.
+func issueOf(task string) string {
+	rest, ok := strings.CutPrefix(task, "---\n")
+	if !ok {
+		return ""
+	}
+	frontMatter, _, ok := strings.Cut(rest, "\n---")
+	if !ok {
+		return ""
+	}
+	for line := range strings.SplitSeq(frontMatter, "\n") {
+		v, ok := strings.CutPrefix(line, "issue:")
+		if !ok {
+			continue
+		}
+		// Anything that is not a plain number is treated as absent rather than
+		// pasted into a pull request body, where "Closes #<garbage>" would
+		// either do nothing or name someone else's issue.
+		v = strings.TrimSpace(v)
+		if v == "" || strings.ContainsFunc(v, func(r rune) bool { return r < '0' || r > '9' }) {
+			return ""
+		}
+		return v
+	}
+	return ""
 }
 
 // changedFiles is what the phase actually did to the checkout, including files

@@ -180,6 +180,16 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	}
 	res.TaskID = id
 
+	// The writing phase is told to run jalon new -issue N, which is what lets a
+	// later jalon work tell the forge which issue its implementation closes.
+	// A warning rather than a refusal: the key is a convenience for a run that
+	// may never happen, and throwing away a measured review over it would cost
+	// far more than the missing line.
+	if b, rerr := os.ReadFile(filepath.Join(wt.path, ".tasks", id+".md")); rerr == nil && issueOf(string(b)) == "" {
+		fmt.Fprintf(env.Stderr, "jalon: the task carries no issue number, so merging its implementation will not close #%d; add \"issue: %d\" to %s.md by hand\n",
+			iss.Number, iss.Number, id)
+	}
+
 	msg := fmt.Sprintf("[%s] propose %s\n\nMeasured from #%d by jalon review. Facts before plan.\n\nRefs #%d\n",
 		id, strings.TrimPrefix(id, idDatePrefix(id)+"-"), iss.Number, iss.Number)
 	if err := publish(ctx, wt, "task/"+id, []string{".tasks"}, msg); err != nil {

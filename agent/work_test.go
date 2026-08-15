@@ -30,15 +30,35 @@ esac`
 
 // newWorkRepo is newRepo plus one agreed task, which is the state jalon work
 // starts from: a task file already on the default branch.
-func newWorkRepo(t *testing.T, status string) string {
+func newWorkRepo(t *testing.T, status string, frontMatter ...string) string {
 	t.Helper()
 	root := newRepo(t, workTOML)
 	mustWrite(t, filepath.Join(root, ".tasks", workTaskID+".md"),
-		"---\nstatus: "+status+"\ncreated: 2026-08-15\nlinks: []\n---\n\n# Remove the Neosync entry\n\n## Context\n\nOne line, in one file.\n\n## Decisions\n\n## Log\n")
+		"---\nstatus: "+status+"\ncreated: 2026-08-15\n"+strings.Join(frontMatter, "")+"links: []\n---\n\n# Remove the Neosync entry\n\n## Context\n\nOne line, in one file.\n\n## Decisions\n\n## Log\n")
 	mustGit(t, root, "add", "-A")
 	mustGit(t, root, "commit", "-q", "-m", "agree the task")
 	mustGit(t, root, "push", "-q", "origin", "main")
 	return root
+}
+
+// The forge closes the issue, jalon only carries the number. Anything that is
+// not a plain number is treated as absent rather than pasted into a pull
+// request body, where it would do nothing or name someone else's issue.
+func TestIssueOf(t *testing.T) {
+	fm := func(body string) string { return "---\n" + body + "\n---\n\n# T\n\n## Context\n\nissue: 999\n" }
+	for _, c := range []struct{ name, task, want string }{
+		{"a review written task", fm("status: proposed\ncreated: 2026-08-15\nissue: 42\nlinks: []"), "42"},
+		{"a hand written task", fm("status: todo\ncreated: 2026-08-15\nlinks: []"), ""},
+		{"only the front matter is read", fm("status: todo"), ""},
+		{"an empty value", fm("issue:"), ""},
+		{"a url instead of a number", fm("issue: https://example.invalid/42"), ""},
+		{"a number with a suffix", fm("issue: 42-and-more"), ""},
+		{"no front matter at all", "# T\n\nissue: 42\n", ""},
+	} {
+		if got := issueOf(c.task); got != c.want {
+			t.Errorf("%s: issueOf = %q, want %q", c.name, got, c.want)
+		}
+	}
 }
 
 func runWork(t *testing.T, root string) (WorkResult, string, string, error) {
@@ -94,6 +114,49 @@ func TestWorkHappyPath(t *testing.T) {
 	// message and not in the pull request body, which GitHub does not use.
 	if msg := gitOut(t, root, "log", "-1", "--format=%B", branch); !strings.Contains(msg, "closes "+workTaskID) {
 		t.Errorf("the commit does not close the task, so merging it will not:\n%s", msg)
+	}
+}
+
+// An issue whose work is merged has to close. The forge does that itself when a
+// merged pull request says so, which is why jalon carries a number and keeps no
+// state about the issue at all.
+func TestWorkTellsTheForgeWhichIssueItCloses(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	if _, _, _, err := runWork(t, root); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") {
+			body = c
+		}
+	}
+	if !strings.Contains(body, "Closes #42") {
+		t.Errorf("the pull request does not close the issue, so merging it will not:\n%s", body)
+	}
+}
+
+// A task written by hand carries no issue, and then there is nothing to close.
+// Guessing one would name someone else's.
+func TestWorkClosesNothingWhenTheTaskCarriesNoIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed")
+
+	if _, _, _, err := runWork(t, root); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "pr create") && strings.Contains(c, "Closes #") {
+			t.Errorf("the pull request closes an issue the task never named:\n%s", c)
+		}
 	}
 }
 

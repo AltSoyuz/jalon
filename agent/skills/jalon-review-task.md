@@ -32,10 +32,14 @@ Use jalon itself. The commands available to you are `jalon new` and
 `jalon append`:
 
 ```sh
-jalon new -status proposed "<a title that names the deliverable>"
+jalon new -issue <N> -status proposed "<a title that names the deliverable>"
 jalon append -decision <id> "<an arbitration, with its reason>"
 jalon append <id> "<what happened, including what failed>"
 ```
+
+`-issue <N>` is the number of the issue you were given, and it is not optional.
+It is how `jalon work` later tells the forge which issue its implementation
+closes; without it the issue stays open after the work has shipped.
 
 Then write the `## Context` section of the file directly. Context is the part
 that matters: it answers "what is this and where does it stand" in a few
