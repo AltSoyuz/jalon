@@ -1,16 +1,18 @@
 ---
 name: jalon-review-task
-description: Write the jalon task file from measured facts and the skeptic's answer, ordered facts before plan. Phase three of jalon review.
+description: Rewrite the queued task file in place from measured facts and the skeptic's answer, ordered facts before plan. Phase three of jalon review.
 ---
 
-# Writing the task
+# Rewriting the task
 
-You are given the issue, the facts document, and the skeptic's answer. You write
-**one jalon task file** and nothing else.
+You are given a task file as a person wrote it, the facts document, and the
+skeptic's answer. You rewrite **that one file** and nothing else. You do not
+create a task: the id already exists, and it is the one that will run from here
+to done.
 
 ## The order is the point
 
-The task reads in this order, and no other:
+The `## Context` section reads in this order, and no other:
 
 1. **What was measured.** The numbers, with the commands that produced them.
 2. **What that contradicts** in the original idea. Cite the skeptic where it
@@ -28,22 +30,20 @@ That is a good outcome, not a failed run. Say so plainly and say why.
 
 ## How to write it
 
-Use jalon itself. The commands available to you are `jalon new` and
-`jalon append`:
+Edit `.tasks/<id>.md` directly for the `## Context` section and the `links`
+key. Replace what the person wrote; the original is one `git log` away and the
+task is what was learned. Keep Context under a page.
+
+For arbitrations, use jalon itself:
 
 ```sh
-jalon new -issue <N> -status proposed "<a title that names the deliverable>"
 jalon append -decision <id> "<an arbitration, with its reason>"
 jalon append <id> "<what happened, including what failed>"
 ```
 
-`-issue <N>` is the number of the issue you were given, and it is not optional.
-It is how `jalon work` later tells the forge which issue its implementation
-closes; without it the issue stays open after the work has shipped.
-
-Then write the `## Context` section of the file directly. Context is the part
-that matters: it answers "what is this and where does it stand" in a few
-paragraphs, in the order above. Keep it under a page.
+Do not touch the `status` line: jalon sets it to `proposed` itself when you are
+done, because this task is a proposal awaiting agreement, and merging is the
+agreement. Do not touch `created` or `issue`.
 
 ### Fill `links` before you stop
 
@@ -61,9 +61,6 @@ grepping the repository for them. If you cited a path anywhere in the Context,
 it belongs here. Three or four paths, not ten: this is the shortlist, not a
 bibliography.
 
-`status: proposed` is deliberate. This task is a proposal awaiting agreement,
-not work in progress. A person decides whether it becomes work.
-
 ## Conventions that are not negotiable
 
 - **English**, always. Everything versioned in this project is in English.
@@ -78,8 +75,10 @@ not work in progress. A person decides whether it becomes work.
 
 ## What not to write
 
-- No section that restates the issue. The issue is linked; the task is what was
+- No section that restates what the person wrote. The task is what was
   learned.
 - No "next steps" list of five things. One coherent deliverable, one task.
 - No hedging about what you did not measure. Name it once, in the facts, and
   move on.
+- No second task file. One id, rewritten in place; jalon refuses the run if
+  anything else under `.tasks/` changed.

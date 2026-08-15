@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
 
 type WorkOptions struct {
 	TaskID       string
-	Next         bool // take the oldest open issue labelled for implementation
+	Next         bool // take the oldest task queued with status: implement on origin
 	KeepWorktree bool
 }
 
@@ -33,10 +32,10 @@ const workDir = ".jalon-work"
 // measures, tries to refute, and proposes. Work is for a task you have already
 // agreed to by merging it, and it writes code.
 //
-// It never takes an issue number as the thing to build: that would skip the
-// human gate the whole design rests on. What -next accepts is an issue a person
-// labelled, which then names its task; the label is the decision, and the task
-// is still what gets implemented.
+// It never takes an issue as the thing to build: the merged task is the
+// agreement, and -next takes the oldest task a person queued by setting its
+// status to implement. That is a button a person pressed, delivered by the
+// timer; jalon never chooses what to implement.
 //
 // Where Review needed Go code to check that the model had measured, because that
 // cannot be verified mechanically, Work has something better and already written:
@@ -44,30 +43,35 @@ const workDir = ".jalon-work"
 func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	var res WorkResult
 
-	// The queue is resolved before the preflight, for the same reason review
-	// does it: Doctor runs the repository's criterion in full, and a tick that
-	// finds nothing labelled would otherwise pay for a test suite and throw the
-	// result away.
-	//
-	// This is not autonomy. The label is a button a person pressed, from a phone
-	// or anywhere else, and the timer only delivers it: jalon never chooses what
-	// to implement.
-	issueNo := 0
+	// The queue is read before the preflight: Doctor runs the repository's
+	// criterion in full, and a tick that finds nothing queued would otherwise
+	// pay for a test suite and throw the result away. Load is what Doctor
+	// would do first anyway.
+	cfg, err := Load(env.Root)
+	if err != nil {
+		return res, fmt.Errorf("work: %w", err)
+	}
+	if err := fetchDefault(ctx, env.Root, cfg); err != nil {
+		return res, fmt.Errorf("work: %w", err)
+	}
 	if opt.Next {
-		n, err := nextIssue(ctx, env.Root, LabelImplement)
+		id, err := nextTask(ctx, env.Root, StatusImplement, "work", "work")
 		if err != nil {
-			return res, fmt.Errorf("work: cannot read the queue: %w; run jalon doctor", err)
+			return res, fmt.Errorf("work: cannot read the queue: %w", err)
 		}
-		if n == 0 {
-			fmt.Fprintf(env.Stderr, "jalon: no open issue labelled %q, nothing to implement\n", LabelImplement)
+		if id == "" {
+			// An empty queue is the normal state of a timer between jobs, and
+			// a unit that failed hourly on it would train everyone to ignore it.
+			fmt.Fprintf(env.Stderr, "jalon: no task with status: %s on origin %s that is not already published or parked, nothing to implement\n", StatusImplement, cfg.Review.DefaultBranch)
 			return res, nil
 		}
-		id, err := taskForIssue(env.Root, n)
-		if err != nil {
-			return res, fmt.Errorf("work: %w", err)
-		}
-		issueNo, opt.TaskID = n, id
+		opt.TaskID = id
 	}
+	task, err := readTask(ctx, env.Root, opt.TaskID)
+	if err != nil {
+		return res, fmt.Errorf("work: %w", err)
+	}
+	res.TaskID = opt.TaskID
 
 	// Doctor runs the criterion before the model touches anything, which is what
 	// makes the same criterion meaningful afterwards: a red result at the end is
@@ -76,13 +80,7 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	if n := report.Failed(); n > 0 {
 		return res, fmt.Errorf("work: %d of %d preflight checks failed; a red base gets no job, the fix for each is on stderr above", n, len(report.Checks))
 	}
-	cfg := report.Config
-
-	task, err := readTask(env.Root, opt.TaskID)
-	if err != nil {
-		return res, fmt.Errorf("work: %w", err)
-	}
-	res.TaskID = opt.TaskID
+	cfg = report.Config
 
 	if err := takeJobSlot(env.Root, cfg); err != nil {
 		return res, fmt.Errorf("work: %w", err)
@@ -92,19 +90,11 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	if err != nil {
 		return res, fmt.Errorf("work: %w", err)
 	}
-	// Parked out of the way and out of the queue, for the reasons given in
-	// Review: one failure must cost one item, not the night.
+	// Parked out of the way, and out of the queue for as long as the wreck is
+	// there: one failure must cost one item, not the night, and a failing task
+	// is retried by a person and not by the clock.
 	keep := func(err error) (WorkResult, error) {
 		res.Worktree = failJob(ctx, env, cfg, wt, err)
-		if issueNo != 0 {
-			if uerr := unlabel(ctx, env.Root, issueNo, LabelImplement); uerr != nil {
-				fmt.Fprintf(env.Stderr, "jalon: issue #%d still carries the %q label, so the next tick will try it again: gh issue edit %d --remove-label %s (%v)\n",
-					issueNo, LabelImplement, issueNo, LabelImplement, uerr)
-			} else {
-				fmt.Fprintf(env.Stderr, "jalon: issue #%d left the queue; to retry it once the cause is fixed: gh issue edit %d --add-label %s\n",
-					issueNo, issueNo, LabelImplement)
-			}
-		}
 		return res, err
 	}
 	if _, err := materializeSkills(wt.path); err != nil {
@@ -178,16 +168,6 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	}
 	res.PR, _ = createPR(ctx, wt.path, "Work: "+opt.TaskID, body)
 
-	// Out of the queue before anything else is reported. The label is the queue,
-	// and an issue left in it is implemented again on the next tick, which would
-	// spend the whole daily cap building the same thing.
-	if issueNo != 0 {
-		if err := unlabel(ctx, wt.path, issueNo, LabelImplement); err != nil {
-			fmt.Fprintf(env.Stderr, "jalon: the work is published but issue #%d still carries the %q label, so the next tick will implement it again: remove it by hand with gh issue edit %d --remove-label %s (%v)\n",
-				issueNo, LabelImplement, issueNo, LabelImplement, err)
-		}
-	}
-
 	fmt.Fprintf(env.Stdout, "%s %s\n", opt.TaskID, res.PR)
 	notify(ctx, env, cfg, fmt.Sprintf("jalon work %s: %s\ncost %s", opt.TaskID, res.PR, formatCost(res.Cost)))
 
@@ -199,61 +179,6 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 		fmt.Fprintf(env.Stderr, "jalon: %v\n", err)
 	}
 	return res, nil
-}
-
-// readTask returns the task file the work implements. It is read here rather
-// than left to the model to find, so a wrong id fails before a single token is
-// spent.
-func readTask(root, id string) (string, error) {
-	if id == "" {
-		return "", fmt.Errorf("a task id is required: jalon work <task-id>")
-	}
-	if strings.ContainsAny(id, `*?[]\/`) {
-		return "", fmt.Errorf("%q is not a task id", id)
-	}
-	path := filepath.Join(root, ".tasks", id+".md")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("no task %s in .tasks; run jalon list to see the ids", id)
-	}
-	// A done task is either already implemented or was closed on purpose, and
-	// re-implementing it would open a pull request nobody asked for.
-	if strings.Contains(string(b), "\nstatus: done\n") {
-		return "", fmt.Errorf("task %s is done; work implements a task that is still open", id)
-	}
-	return string(b), nil
-}
-
-// taskForIssue finds the task that names this issue. The label says "implement
-// this"; which task that means is written in the task itself, and jalon does not
-// invent it. Two tasks naming the same issue is a person's mistake to resolve,
-// not something to pick between.
-func taskForIssue(root string, number int) (string, error) {
-	paths, err := filepath.Glob(filepath.Join(root, ".tasks", "*.md"))
-	if err != nil {
-		return "", err
-	}
-	want := strconv.Itoa(number)
-	var found []string
-	for _, p := range paths {
-		b, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return "", rerr
-		}
-		if issueOf(string(b)) == want {
-			found = append(found, strings.TrimSuffix(filepath.Base(p), ".md"))
-		}
-	}
-	switch len(found) {
-	case 1:
-		return found[0], nil
-	case 0:
-		return "", fmt.Errorf("issue #%d is labelled %q but no task in .tasks names it; merge the review's pull request first, or add \"issue: %d\" to the task by hand",
-			number, LabelImplement, number)
-	default:
-		return "", fmt.Errorf("issue #%d is named by %d tasks (%s); leave the one to implement and remove the issue key from the others",
-			number, len(found), strings.Join(found, ", "))
-	}
 }
 
 // issueOf reads the one front matter key work needs, and returns "" when the

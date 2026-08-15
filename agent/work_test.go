@@ -160,15 +160,26 @@ func TestWorkClosesNothingWhenTheTaskCarriesNoIssue(t *testing.T) {
 	}
 }
 
-// The label is the whole remote control: a person adds it from a phone and the
-// timer delivers it. jalon never chooses what to build, which is why -next
-// resolves an issue to the task that names it rather than to anything else.
-func TestWorkNextTakesTheLabelledIssue(t *testing.T) {
+// The status field is the whole remote control: a person sets it to implement
+// from a phone or a shell and commits it to main; the timer delivers it. jalon
+// never chooses what to build, and it reads the queue from origin with git
+// alone: no label, no forge call.
+func TestWorkNextTakesTheOldestQueuedTask(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
   echo done`))
 	s.add(t, "gh", happyGH)
-	root := newWorkRepo(t, "proposed", "issue: 42\n")
+	root := newWorkRepo(t, StatusImplement)
+	// A younger queued task, a published one, and a parked one, all skipped.
+	for _, id := range []string{"260816-younger", "260801-published", "260802-parked"} {
+		mustWrite(t, filepath.Join(root, ".tasks", id+".md"),
+			"---\nstatus: implement\ncreated: 2026-08-15\nlinks: []\n---\n\n# "+id+"\n\n## Context\n\nx\n\n## Decisions\n\n## Log\n")
+	}
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "queue more")
+	mustGit(t, root, "push", "-q", "origin", "main")
+	mustGit(t, root, "push", "-q", "origin", "main:work/260801-published")
+	mustWrite(t, filepath.Join(root, ".jalon", "failed", "work-260802-parked", "x"), "")
 
 	var out, errb strings.Builder
 	res, err := Work(context.Background(),
@@ -177,30 +188,37 @@ func TestWorkNextTakesTheLabelledIssue(t *testing.T) {
 		t.Fatalf("work -next failed: %v", err)
 	}
 	if res.TaskID != workTaskID {
-		t.Errorf("task = %q, want the one naming issue 42", res.TaskID)
+		t.Errorf("task = %q, want the oldest queued task that is neither published nor parked", res.TaskID)
 	}
-	// Out of the queue, or the next tick builds it again and spends the cap.
-	var removed bool
 	for _, c := range s.of(t, "gh") {
-		if strings.Contains(c, "issue edit") && strings.Contains(c, "--remove-label "+LabelImplement) {
-			removed = true
+		if strings.Contains(c, "issue") {
+			t.Errorf("the queue touched the forge: %s", c)
 		}
 	}
-	if !removed {
-		t.Error("the label was left in place, so the next tick would implement it again")
+	// Out of the queue by having a branch: the next tick takes the younger
+	// one, and the tick after that finds nothing.
+	res, err = Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil || res.TaskID != "260816-younger" {
+		t.Errorf("second tick: err %v, task %q; want the younger queued task", err, res.TaskID)
+	}
+	res, err = Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil || res.TaskID != "" {
+		t.Errorf("third tick: err %v, task %q; the queue must be empty", err, res.TaskID)
+	}
+	if n := len(s.models(t)); n != 2 {
+		t.Errorf("the model was called %d times over three ticks, want 2", n)
 	}
 }
 
 // An empty queue is the normal state of a timer between jobs. A unit that
 // failed hourly on it would train everyone to ignore it.
-func TestWorkNextWithNothingLabelled(t *testing.T) {
+func TestWorkNextWithNothingQueued(t *testing.T) {
 	s := newStubs(t)
 	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
-	s.add(t, "gh", `case "$1 $2" in
-"issue list") echo "[]" ;;
-*) echo "unexpected gh: $*" >&2; exit 1 ;;
-esac`)
-	root := newWorkRepo(t, "proposed", "issue: 42\n")
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed")
 
 	var out, errb strings.Builder
 	res, err := Work(context.Background(),
@@ -214,53 +232,11 @@ esac`)
 	if n := len(s.models(t)); n != 0 {
 		t.Errorf("the model was called %d times on an empty queue", n)
 	}
-	if !strings.Contains(errb.String(), LabelImplement) {
+	if !strings.Contains(errb.String(), StatusImplement) {
 		t.Errorf("stderr does not say what it looked for:\n%s", errb.String())
 	}
-}
-
-// The label says "implement this". Which task that means is written in the
-// task, and jalon does not invent it.
-func TestWorkNextRefusesWhenNoTaskNamesTheIssue(t *testing.T) {
-	s := newStubs(t)
-	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
-	s.add(t, "gh", happyGH)
-	root := newWorkRepo(t, "proposed") // no issue key
-
-	var out, errb strings.Builder
-	_, err := Work(context.Background(),
-		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
-	if err == nil {
-		t.Fatal("a labelled issue no task names must refuse")
-	}
-	if !strings.Contains(err.Error(), "42") {
-		t.Errorf("the refusal does not name the issue: %v", err)
-	}
-	if n := len(s.models(t)); n != 0 {
-		t.Errorf("the model was called %d times with nothing to build", n)
-	}
-}
-
-// Two tasks naming one issue is a person's mistake to resolve, not something to
-// pick between.
-func TestWorkNextRefusesWhenTwoTasksNameTheIssue(t *testing.T) {
-	s := newStubs(t)
-	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
-	s.add(t, "gh", happyGH)
-	root := newWorkRepo(t, "proposed", "issue: 42\n")
-	mustWrite(t, filepath.Join(root, ".tasks", "260815-a-second-task.md"),
-		"---\nstatus: proposed\ncreated: 2026-08-15\nissue: 42\nlinks: []\n---\n\n# Second\n\n## Context\n\nAlso 42.\n")
-
-	var out, errb strings.Builder
-	_, err := Work(context.Background(),
-		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
-	if err == nil {
-		t.Fatal("two tasks naming one issue must refuse rather than pick")
-	}
-	for _, want := range []string{workTaskID, "260815-a-second-task"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not name %s: %v", want, err)
-		}
+	if n := len(s.of(t, "gh")); n != 0 {
+		t.Errorf("reading the queue made %d gh calls, want 0", n)
 	}
 }
 
@@ -416,7 +392,7 @@ func TestAFailedWorkLeavesTheQueueAndIsParked(t *testing.T) {
   touch BROKEN
   echo "done, criterion red"`))
 	s.add(t, "gh", happyGH)
-	root := newWorkRepo(t, "proposed", "issue: 42\n")
+	root := newWorkRepo(t, StatusImplement)
 
 	var out, errb strings.Builder
 	res, err := Work(context.Background(),
@@ -430,17 +406,12 @@ func TestAFailedWorkLeavesTheQueueAndIsParked(t *testing.T) {
 	if _, serr := os.Stat(filepath.Join(root, res.Worktree, "BROKEN")); serr != nil {
 		t.Errorf("the failing change is not in the parked worktree: %v", serr)
 	}
-	var removed bool
-	for _, c := range s.of(t, "gh") {
-		if strings.Contains(c, "issue edit") && strings.Contains(c, "--remove-label "+LabelImplement) {
-			removed = true
-		}
-	}
-	if !removed {
-		t.Error("the failed issue was left in the queue, so the next tick would repeat the failure")
-	}
-	if !strings.Contains(errb.String(), "--add-label "+LabelImplement) {
-		t.Errorf("the message must say how to retry:\n%s", errb.String())
+	// The wreck keeps the task out of the queue: the next tick finds nothing
+	// rather than failing the same way again.
+	res, err = Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil || res.TaskID != "" {
+		t.Errorf("second tick: err %v, task %q; the parked task must be skipped", err, res.TaskID)
 	}
 }
 

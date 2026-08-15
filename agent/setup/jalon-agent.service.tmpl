@@ -44,13 +44,15 @@ EnvironmentFile={{.EnvFile}}
 ExecStartPre=-/usr/bin/git -C {{.Jalon}} pull --ff-only
 ExecStartPre=/usr/bin/make -C {{.Jalon}} build
 
-# Two stages, two labels, one tick. A Type=oneshot service runs its ExecStart
-# lines in order, so there is no second unit and no combined verb: measure what
-# is labelled "measure", then implement what is labelled "implement". Both
-# succeed quietly on an empty queue, which is the normal state between jobs.
+# Two stages, two statuses, one tick. A Type=oneshot service runs its ExecStart
+# lines in order, so there is no second unit and no combined verb: measure the
+# tasks whose status is "measure", then implement the ones whose status is
+# "implement", as origin's default branch has them. Both succeed quietly on an
+# empty queue, which is the normal state between jobs.
 #
-# The labels are the whole remote control. A person adds one from a phone and
-# the timer delivers it; jalon never chooses what to measure or what to build.
+# The status field is the whole remote control. A person edits that one line
+# from a phone or a shell and commits it to main; the timer delivers it, and
+# jalon never chooses what to measure or what to build.
 #
 # Both run doctor first and refuse on a red base, so a failure here is a real
 # failure and not a half-finished job. The criterion is still the gate: a main

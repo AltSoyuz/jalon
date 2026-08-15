@@ -13,9 +13,8 @@ import (
 )
 
 type ReviewOptions struct {
-	Issue        int
-	Next         bool   // pick the oldest open issue labelled for review
-	TasksDir     string // the resolved .tasks directory of the real repository
+	TaskID       string
+	Next         bool // take the oldest task queued with status: measure on origin
 	KeepWorktree bool
 }
 
@@ -27,74 +26,67 @@ type ReviewResult struct {
 }
 
 // reviewDir holds what the phases produce, inside the worktree. It is never
-// committed: only .tasks/ is staged, so these die with the worktree.
+// committed: only the task file is staged, so these die with the worktree.
 const reviewDir = ".jalon-review"
 
-// Review turns one issue into a measured task proposal, in a pull request.
+// Review turns one task into a measured proposal, in a pull request.
 //
 // The order is the whole point: facts, then an attempt to refute them, then the
 // task. A plan that arrives before the measurement gets believed, and then the
 // measurement never happens.
+//
+// The task it takes is a stub a person queued: a title and a Context saying
+// what they think, written by hand or by `jalon new -issue`, with its status
+// set to measure. The review rewrites that same file, so one id runs from
+// capture to done and no second identifier has to survive the trip.
 func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, error) {
 	var res ReviewResult
 
-	// The queue is resolved before the preflight, and only on the -next path.
-	// Doctor runs the repository's criterion in full, so an hourly tick that
-	// finds nothing would otherwise pay for a test suite and throw the result
-	// away. nextIssue needs the root and nothing Doctor produces, so the order
-	// costs nothing to invert.
+	// The queue is read before the preflight, for the reason given in Work.
+	cfg, err := Load(env.Root)
+	if err != nil {
+		return res, fmt.Errorf("review: %w", err)
+	}
+	if err := fetchDefault(ctx, env.Root, cfg); err != nil {
+		return res, fmt.Errorf("review: %w", err)
+	}
 	if opt.Next {
-		n, err := nextIssue(ctx, env.Root, LabelMeasure)
+		id, err := nextTask(ctx, env.Root, StatusMeasure, "task", "review")
 		if err != nil {
-			// gh is the one thing this path needs before the preflight has had
-			// a chance to diagnose it, so point at the verb that will.
-			return res, fmt.Errorf("review: cannot read the queue: %w; run jalon doctor", err)
+			return res, fmt.Errorf("review: cannot read the queue: %w", err)
 		}
-		if n == 0 {
-			// Nothing labelled is not a failure: it is the normal state of a
-			// timer between jobs, and a unit that failed hourly on an empty
-			// queue would train everyone to ignore it.
-			fmt.Fprintf(env.Stderr, "jalon: no open issue labelled %q, nothing to review\n", LabelMeasure)
+		if id == "" {
+			fmt.Fprintf(env.Stderr, "jalon: no task with status: %s on origin %s that is not already published or parked, nothing to review\n", StatusMeasure, cfg.Review.DefaultBranch)
 			return res, nil
 		}
-		opt.Issue = n
+		opt.TaskID = id
 	}
+	task, err := readTask(ctx, env.Root, opt.TaskID)
+	if err != nil {
+		return res, fmt.Errorf("review: %w", err)
+	}
+	res.TaskID = opt.TaskID
+	id := opt.TaskID
+	taskPath := ".tasks/" + id + ".md"
 
 	report := Doctor(ctx, env, Options{})
 	if n := report.Failed(); n > 0 {
 		return res, fmt.Errorf("review: %d of %d preflight checks failed; a red base gets no job, the fix for each is on stderr above", n, len(report.Checks))
 	}
-	cfg := report.Config
+	cfg = report.Config
 
 	if err := takeJobSlot(env.Root, cfg); err != nil {
 		return res, fmt.Errorf("review: %w", err)
 	}
 
-	iss, err := fetchIssue(ctx, env.Root, opt.Issue)
-	if err != nil {
-		return res, fmt.Errorf("review: %w", err)
-	}
-	if strings.EqualFold(iss.State, "CLOSED") {
-		return res, fmt.Errorf("review: issue #%d is closed; reopen it, or pick another", opt.Issue)
-	}
-
-	wt, err := newWorktree(ctx, env.Root, cfg, fmt.Sprintf("review-%d", opt.Issue))
+	wt, err := newWorktree(ctx, env.Root, cfg, "review-"+id)
 	if err != nil {
 		return res, fmt.Errorf("review: %w", err)
 	}
 	// Every failure from here keeps the worktree, parked out of the way, and
-	// every path out says so. The issue leaves the queue too: a failed job that
-	// stays queued is retried every tick, and on a timer that spends the daily
-	// cap on one issue. The message says how to put it back.
+	// out of the queue for as long as the wreck is there.
 	keep := func(err error) (ReviewResult, error) {
 		res.Worktree = failJob(ctx, env, cfg, wt, err)
-		if uerr := unlabel(ctx, env.Root, iss.Number, LabelMeasure); uerr != nil {
-			fmt.Fprintf(env.Stderr, "jalon: issue #%d still carries the %q label, so the next tick will try it again: gh issue edit %d --remove-label %s (%v)\n",
-				iss.Number, LabelMeasure, iss.Number, LabelMeasure, uerr)
-		} else {
-			fmt.Fprintf(env.Stderr, "jalon: issue #%d left the queue; to retry it once the cause is fixed: gh issue edit %d --add-label %s\n",
-				iss.Number, iss.Number, LabelMeasure)
-		}
 		return res, err
 	}
 	if _, err := materializeSkills(wt.path); err != nil {
@@ -103,6 +95,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	if err := os.MkdirAll(filepath.Join(wt.path, reviewDir), 0o755); err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
+	input := "Task " + id + " (the file is " + taskPath + "):\n\n--- task starts ---\n" + task + "--- task ends ---\n"
 
 	// Phase 1: facts. No write tool exists at all, so jalon writes the file
 	// from what the phase printed. The gate then checks content jalon itself
@@ -112,8 +105,8 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		skill: "jalon-review-facts",
 		tools: []string{"Read", "Grep", "Glob", "Bash"},
 		allow: append(probeTools(cfg.Probes), "Read", "Grep", "Glob"),
-		stdin: iss.text() + probeList(cfg),
-		prompt: "Gather the measured facts about the issue on stdin, following the jalon-review-facts method. " +
+		stdin: input + probeList(cfg),
+		prompt: "Gather the measured facts about the task on stdin, following the jalon-review-facts method. " +
 			"Print the facts document; do not write any file.",
 	})
 	facts := factsRes.out
@@ -142,8 +135,8 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		skill: "jalon-review-skeptic",
 		tools: []string{"Read", "Grep", "Glob", "Bash"},
 		allow: append(probeTools(cfg.Probes), "Read", "Grep", "Glob"),
-		stdin: iss.text() + probeList(cfg) + "\n--- facts start ---\n" + facts + "\n--- facts end ---\n",
-		prompt: "Try to refute the premise of the issue on stdin with a command, following the " +
+		stdin: input + probeList(cfg) + "\n--- facts start ---\n" + facts + "\n--- facts end ---\n",
+		prompt: "Try to refute the premise of the task on stdin with a command, following the " +
 			"jalon-review-skeptic method. One pass. Print your answer; do not write any file.",
 	})
 	skeptic := skepticRes.out
@@ -157,10 +150,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 
 	// Phase 2: the task file, and nothing else. The model gets no git, no gh
 	// and no push; jalon does every mutation itself, below.
-	before, err := taskFiles(wt.path)
-	if err != nil {
-		return keep(fmt.Errorf("review: %w", err))
-	}
+	//
 	// Edit(.tasks/**) and no Write rule: Claude Code matches file permissions
 	// against Edit rules only, and covers every file-editing tool with them. A
 	// Write rule is never in force, and offering one makes the model try a path
@@ -169,12 +159,12 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		name:  "task",
 		skill: "jalon-review-task",
 		tools: []string{"Read", "Grep", "Glob", "Write", "Edit", "Bash"},
-		allow: []string{"Bash(jalon new:*)", "Bash(jalon append:*)", "Bash(jalon list:*)",
+		allow: []string{"Bash(jalon append:*)", "Bash(jalon list:*)", "Bash(jalon digest:*)",
 			"Read", "Grep", "Glob", "Edit(.tasks/**)"},
-		stdin: iss.text() +
+		stdin: input +
 			"\n--- facts start ---\n" + facts + "\n--- facts end ---\n" +
 			"\n--- skeptic start ---\n" + skeptic + "\n--- skeptic end ---\n",
-		prompt: "Write one jalon task from the issue, the facts and the skeptic's answer on stdin, " +
+		prompt: "Rewrite the task on stdin from the facts and the skeptic's answer, in place, " +
 			"following the jalon-review-task method. Measured facts first, the plan last.",
 	})
 	// Written before the error is checked, like the facts. This phase failed on
@@ -186,30 +176,28 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	if err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
-
-	id, err := newTaskID(wt.path, before)
-	if err != nil {
+	// git says what the phase did to .tasks, not the phase: exactly this one
+	// file, rewritten. A phase that wrote nothing, or created a second task,
+	// is caught here with a message that says which.
+	if err := onlyThisTaskChanged(ctx, wt, taskPath); err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
-	res.TaskID = id
-
-	// The writing phase is told to run jalon new -issue N, which is what lets a
-	// later jalon work tell the forge which issue its implementation closes.
-	// A warning rather than a refusal: the key is a convenience for a run that
-	// may never happen, and throwing away a measured review over it would cost
-	// far more than the missing line.
-	if b, rerr := os.ReadFile(filepath.Join(wt.path, ".tasks", id+".md")); rerr == nil && issueOf(string(b)) == "" {
-		fmt.Fprintf(env.Stderr, "jalon: the task carries no issue number, so merging its implementation will not close #%d; add \"issue: %d\" to %s.md by hand\n",
-			iss.Number, iss.Number, id)
+	// jalon sets the status, so it is proposed whatever the phase wrote: this
+	// task is a proposal awaiting agreement, and merging is the agreement.
+	if err := setStatus(filepath.Join(wt.path, taskPath), "proposed"); err != nil {
+		return keep(fmt.Errorf("review: %w", err))
 	}
 
-	msg := fmt.Sprintf("[%s] propose %s\n\nMeasured from #%d by jalon review. Facts before plan.\n\nRefs #%d\n",
-		id, strings.TrimPrefix(id, idDatePrefix(id)+"-"), iss.Number, iss.Number)
-	if err := publish(ctx, wt, "task/"+id, []string{".tasks"}, msg); err != nil {
+	issue := issueOf(task)
+	msg := fmt.Sprintf("[%s] propose %s\n\nMeasured by jalon review. Facts before plan.\n", id, strings.TrimPrefix(id, idDatePrefix(id)+"-"))
+	if issue != "" {
+		msg += "\nRefs #" + issue + "\n"
+	}
+	if err := publish(ctx, wt, "task/"+id, []string{taskPath}, msg); err != nil {
 		return keep(fmt.Errorf("review: %w", err))
 	}
 	var body strings.Builder
-	fmt.Fprintf(&body, "Measured proposal for #%d, written by `jalon review`.\n\nMerging is the agreement; this branch holds the task file only.\n\n", iss.Number)
+	fmt.Fprintf(&body, "Measured proposal for `%s`, written by `jalon review`.\n\nMerging is the agreement; this branch holds the task file only. Set its status to %s to have it built.\n\n", id, StatusImplement)
 	if len(suspect) > 0 {
 		body.WriteString("Check these by hand before believing the facts they support:\n\n")
 		for _, s := range suspect {
@@ -218,20 +206,14 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		body.WriteString("\n")
 	}
 	res.Cost = sumCost(factsRes.cost, skepticRes.cost, taskRes.cost)
-	fmt.Fprintf(&body, "Cost: %s over three model calls.\n\nRefs #%d\n", formatCost(res.Cost), iss.Number)
+	fmt.Fprintf(&body, "Cost: %s over three model calls.\n", formatCost(res.Cost))
+	if issue != "" {
+		fmt.Fprintf(&body, "\nRefs #%s\n", issue)
+	}
 	res.PR, _ = createPR(ctx, wt.path, "Task: "+id, body.String())
 
-	// Out of the queue before anything else is reported: the label is the
-	// queue, and an issue left in it is re-measured on the next tick. A failure
-	// here is loud rather than warned, because the consequence is a loop that
-	// spends the daily cap on one issue.
-	if err := unlabel(ctx, wt.path, iss.Number, LabelMeasure); err != nil {
-		fmt.Fprintf(env.Stderr, "jalon: the review is published but issue #%d still carries the %q label, so the next tick will measure it again: remove it by hand with gh issue edit %d --remove-label %s (%v)\n",
-			iss.Number, LabelMeasure, iss.Number, LabelMeasure, err)
-	}
-
 	fmt.Fprintf(env.Stdout, "%s %s\n", id, res.PR)
-	notify(ctx, env, cfg, fmt.Sprintf("jalon review #%d: %s\n%s\ncost %s", iss.Number, id, res.PR, formatCost(res.Cost)))
+	notify(ctx, env, cfg, fmt.Sprintf("jalon review %s: %s\ncost %s", id, res.PR, formatCost(res.Cost)))
 
 	if opt.KeepWorktree {
 		res.Worktree = wt.rel
@@ -241,6 +223,60 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		fmt.Fprintf(env.Stderr, "jalon: %v\n", err)
 	}
 	return res, nil
+}
+
+// onlyThisTaskChanged asks git what happened under .tasks: the one file,
+// modified, and nothing else.
+func onlyThisTaskChanged(ctx context.Context, wt *worktree, taskPath string) error {
+	out, err := git(ctx, wt.path, "status", "--porcelain", "--", ".tasks")
+	if err != nil {
+		return err
+	}
+	var changed []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			changed = append(changed, line)
+		}
+	}
+	switch {
+	case len(changed) == 0:
+		return fmt.Errorf("the writing phase changed nothing under .tasks; it was told to rewrite %s and did not, and what it printed instead is in %s/task.md", taskPath, reviewDir)
+	case len(changed) == 1 && changed[0] == " M "+taskPath:
+		return nil
+	default:
+		return fmt.Errorf("the writing phase was to rewrite %s and nothing else, and git sees: %s", taskPath, strings.Join(changed, ", "))
+	}
+}
+
+// setStatus rewrites the one front matter line jalon owns in a review. It is
+// a line replacement and not a second front matter parser: the file keeps
+// every other byte as the phase left it.
+func setStatus(path, status string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	s := string(b)
+	rest, ok := strings.CutPrefix(s, "---\n")
+	if !ok {
+		return fmt.Errorf("%s has no front matter, so its status cannot be set", path)
+	}
+	fm, body, ok := strings.Cut(rest, "\n---")
+	if !ok {
+		return fmt.Errorf("%s has an unterminated front matter", path)
+	}
+	lines := strings.Split(fm, "\n")
+	found := false
+	for i, l := range lines {
+		if strings.HasPrefix(l, "status:") {
+			lines[i] = "status: " + status
+			found = true
+		}
+	}
+	if !found {
+		lines = append([]string{"status: " + status}, lines...)
+	}
+	return os.WriteFile(path, []byte("---\n"+strings.Join(lines, "\n")+"\n---"+body), 0o644)
 }
 
 // probeList tells a phase what it may run, instead of leaving it to find out by
@@ -346,44 +382,6 @@ func takeJobSlot(root string, cfg *Config) error {
 	return os.WriteFile(path, fmt.Appendf(nil, "%s %d\n", today, count+1), 0o644)
 }
 
-func taskFiles(root string) (map[string]bool, error) {
-	paths, err := filepath.Glob(filepath.Join(root, ".tasks", "*.md"))
-	if err != nil {
-		return nil, err
-	}
-	set := make(map[string]bool, len(paths))
-	for _, p := range paths {
-		set[filepath.Base(p)] = true
-	}
-	return set, nil
-}
-
-// newTaskID finds what the writing phase created. Asking the filesystem rather
-// than parsing the model's prose is what makes this reliable: a phase that
-// wrote nothing, or wrote two tasks, is caught here with a message that says
-// which.
-func newTaskID(root string, before map[string]bool) (string, error) {
-	after, err := taskFiles(root)
-	if err != nil {
-		return "", err
-	}
-	var added []string
-	for name := range after {
-		if !before[name] {
-			added = append(added, strings.TrimSuffix(name, ".md"))
-		}
-	}
-	switch len(added) {
-	case 1:
-		return added[0], nil
-	case 0:
-		return "", fmt.Errorf("the writing phase created no task file; it was told to run jalon new and did not, and what it printed instead is in %s/task.md", reviewDir)
-	default:
-		return "", fmt.Errorf("the writing phase created %d task files (%s); one coherent deliverable is one task",
-			len(added), strings.Join(added, ", "))
-	}
-}
-
 // publish is every mutation of a run, done by jalon rather than by the model.
 // No phase is ever handed a commit or a push, which removes that blast radius
 // instead of policing it.
@@ -437,7 +435,8 @@ func notify(ctx context.Context, env Env, cfg *Config, msg string) {
 	}
 	if _, err := run(ctx, runOpts{
 		dir: env.Root, name: "sh", args: []string{"-c", cfg.Notify},
-		stdin: msg, timeout: 60 * time.Second,
+		// Terminated, so a command reading it line by line gets the last line.
+		stdin: strings.TrimRight(msg, "\n") + "\n", timeout: 60 * time.Second,
 	}); err != nil {
 		// The work is done and pushed; a failed notification must not undo it.
 		fmt.Fprintf(env.Stderr, "jalon: the notification command failed: %v\n", err)
