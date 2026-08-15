@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `docs/measuring.md` reads the two numbers of the `work` kill criterion:
+  branches merged without a second commit, from `gh pr list`, and dollars per
+  merged branch, from `JALON_METRICS`. Nothing new in the binary.
 - The pull request `jalon work` opens carries the task's digest, `git diff
   --stat`, the criterion's last line and the job's cost in dollars; `review`
   carries the cost too. Phases run with `--output-format json` to read

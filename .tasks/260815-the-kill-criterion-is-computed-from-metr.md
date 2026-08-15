@@ -16,3 +16,4 @@ links: []
 ## Log
 
 - 2026-08-15 altsoyuz: depends on the cost field from 260815-the-pull-request-body. Fifth in the order; it is a documentation recipe and one field, not a feature.
+- 2026-08-15 altsoyuz: implemented: two recipes in docs/measuring.md (merged work branches with exactly one commit over the last twenty, from gh pr list; dollars per merged branch from JALON_METRICS cost_usd joined on the id with awk), the kill section of docs/agent.md points at them and states that jalon proposes and never flips. Both recipes dry-run on synthetic data.

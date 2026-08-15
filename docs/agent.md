@@ -239,6 +239,13 @@ Written before the first line of it existed, and unchanged since: over the first
 20 jobs, at least 12 branches merged without human correction and at most ~5 USD
 per merged branch. Otherwise `work` is deleted and capture plus `review` stay.
 
+Both numbers are computed, not remembered: `docs/measuring.md` has the two
+one-liners, one over the forge's merged pull requests (a work branch carries
+exactly one commit, so a second commit is a correction) and one over
+`JALON_METRICS`, where every job leaves its `cost_usd`. If the numbers hold and
+more autonomy is wanted, jalon proposes and never flips: the change is a pull
+request on `.jalon/agent.toml` a person merges.
+
 ## The configuration
 
 `.jalon/agent.toml`, versioned in each target repository. Every key is required
