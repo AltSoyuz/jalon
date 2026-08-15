@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check on every tick would be a standing bill. Everything else doctor checks
   establishes that a binary exists and takes the right flags, which does not
   catch an expired token.
+- A job's worktree is cut from `origin/<default_branch>` after an explicit
+  fetch, instead of from whatever the local branch holds. Nothing updates a
+  target repository's checkout: the systemd unit pulls the jalon checkout and
+  only that, so a target drifts from the day it is cloned. A review then
+  measured stale code, and `work` would commit on top of an ancestor, which is
+  how an implementation reverts something already merged. The fetch is fatal on
+  failure, unlike the unit's pull, and it never touches your branch or your
+  working tree.
 - `jalon work <task-id>` implements one already agreed task and opens a pull
   request only if the repository's own `[criterion].command` passes. It takes a
   task id and never an issue number, because the merged task is the agreement;

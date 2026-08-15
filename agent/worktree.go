@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// A review runs in a throwaway worktree so the model has a real checkout to read
+// A job runs in a throwaway worktree so the model has a real checkout to read
 // and nothing of yours to damage: your working tree keeps its uncommitted
 // changes, and the worst a runaway phase can do is dirty a directory jalon is
 // about to delete.
@@ -34,9 +34,24 @@ func newWorktree(ctx context.Context, root string, cfg *Config, name string) (*w
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	// Detached: nothing here is on a branch until there is something to commit.
-	if _, err := git(ctx, root, "worktree", "add", "--detach", path, cfg.Review.DefaultBranch); err != nil {
-		return nil, fmt.Errorf("cannot create the review worktree from %s: %w", cfg.Review.DefaultBranch, err)
+	// The job runs on what the forge has, never on what this clone happens to
+	// hold. Nothing updates a target repository's checkout: the systemd unit
+	// pulls the jalon checkout and only that, so a target drifts from the day it
+	// is cloned. A review then measures stale code, and work commits on top of an
+	// ancestor, which is how an implementation reverts something already merged.
+	//
+	// Fatal on failure, unlike the unit's pull, which is deliberately not: there,
+	// running the binary you already have is a reasonable answer to a network
+	// blip. Here, running on the tree you already have is the defect.
+	if _, err := git(ctx, root, "fetch", "--quiet", "origin", cfg.Review.DefaultBranch); err != nil {
+		return nil, fmt.Errorf("cannot fetch origin %s, and a job on a stale checkout is worse than no job: %w", cfg.Review.DefaultBranch, err)
+	}
+	// FETCH_HEAD is exactly what that fetch retrieved, whatever the clone's
+	// refspec is configured to track. Detached, so nothing here is on a branch
+	// until there is something to commit, and your own branch and working tree
+	// are never touched.
+	if _, err := git(ctx, root, "worktree", "add", "--detach", path, "FETCH_HEAD"); err != nil {
+		return nil, fmt.Errorf("cannot create the worktree from origin %s: %w", cfg.Review.DefaultBranch, err)
 	}
 	return &worktree{root: root, path: path, rel: rel}, nil
 }
