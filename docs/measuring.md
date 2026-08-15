@@ -71,6 +71,47 @@ Two more worth a look when something feels wrong: degraded runs
 suspiciously cheap, and errors (`select(.err)`) show what you keep getting wrong
 on the command line.
 
+## The two numbers that decide whether `work` lives
+
+`docs/agent.md` states the kill criterion for `jalon work` in advance: over the
+first 20 jobs, at least 12 branches merged without human correction and at most
+about 5 USD per merged branch. Both numbers are read, not remembered, and
+neither lives in the binary: one comes from the forge, one from this file.
+
+**Branches merged without correction.** jalon pushes exactly one commit per
+`work/<id>` branch, so a merged pull request with more than one commit is one a
+person had to fix before merging. Over the last twenty merged work branches:
+
+```sh
+gh pr list --state merged --limit 200 --json number,headRefName,commits,mergedAt \
+  --jq '[.[] | select(.headRefName | startswith("work/"))] | sort_by(.mergedAt) | .[-20:]
+        | {merged: length, untouched: map(select((.commits | length) == 1)) | length}'
+```
+
+`untouched` at 12 or above out of 20 is the bar. A closed-without-merge pull
+request does not appear here; count those by hand with `--state closed`, and
+count them against.
+
+**Dollars per merged branch.** Every agent job appends a metrics line with
+`cost_usd` when the CLI reported one, so the cost of the merged branches is a
+join on the id:
+
+```sh
+gh pr list --state merged --limit 200 --json headRefName \
+  --jq '.[] | .headRefName | select(startswith("work/")) | sub("^work/"; "")' \
+  | sort -u > /tmp/merged-ids
+jq -r 'select(.verb=="work" and .id!="") | "\(.id) \(.cost_usd // 0)"' ~/jalon-metrics.jsonl \
+  | awk 'NR==FNR {merged[$1]=1; next} ($1 in merged) {sum+=$2; n++}
+         END {printf "%d merged branches, %.2f USD total, %.2f USD per branch\n", n, sum, (n? sum/n : 0)}' /tmp/merged-ids -
+```
+
+Failed jobs cost money too and merge nothing; the same file has them
+(`select(.verb=="work" and .err)`), and their cost belongs in any honest total.
+
+When both numbers hold and you want the agent to do more, jalon proposes and
+never flips: the unlock is a pull request that edits `.jalon/agent.toml`, which
+a person merges. Nothing in the binary changes its own rights on a measurement.
+
 ## The half that is not automatic
 
 Over two weeks, on real tasks, record what your agent harness reports:
