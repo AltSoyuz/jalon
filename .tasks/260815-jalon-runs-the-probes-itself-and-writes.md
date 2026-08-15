@@ -1,5 +1,5 @@
 ---
-status: todo
+status: done
 created: 2026-08-15
 links: []
 ---
@@ -19,3 +19,4 @@ links: []
 
 - 2026-08-15 altsoyuz: measured problem: docs/agent.md records a live run whose facts.md held a plausible $ which gh block for a command that did not run; the survey of other agents found nobody enforcing measurement in code, so this step is what makes the differentiating claim provable. Fourth in the order because it touches the skills and the gate together.
 - 2026-08-15 altsoyuz: implemented: the facts phase runs with Read, Grep, Glob and no Bash and prints commands; runProbes executes the allowed, uncomposed, installed ones with exec (no shell), writes facts.md with command, output and exit status, and lists refusals; the gate is ran > 0; commandBlock, gate() and suspectCommands are gone; refusals reach stderr and the PR body. Tests: TestReviewGateRefusesNarration, TestReviewRefusesProbesWithoutStopping, TestTheFactsAreWhatTheProbesPrinted.
+- 2026-08-15 altsoyuz: closed.
