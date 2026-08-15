@@ -23,7 +23,7 @@ conventional:
 | Gate | Enforced by |
 |---|---|
 | the decision to implement | `jalon work` only runs when a person triggers it |
-| the merge | branch protection on `main`; the agent's token cannot merge |
+| the merge | branch protection on `main`, enforced on administrators too, and jalon has no merge call |
 | production | deploy needs sudo; the agent user has none |
 
 ## The stages
@@ -247,9 +247,19 @@ out-of-git state that drifts between servers.
    fail. It matters more since `work` exists: `review` never let a phase write
    outside `.tasks/`, and `work` writes source code by definition. The
    containment is unchanged, the stake is not.
-2. **The token and branch protection.** A fine-grained PAT limited to the
-   owner's repositories, with `issues:write` and `contents:write`. It cannot
-   merge. The agent user has no sudo, and no `NOPASSWD` exception exists.
+2. **Branch protection, enforced on administrators too.** Nothing reaches `main`
+   outside a pull request with green checks, and that setting is the only thing
+   in this list the forge enforces. It was measured rather than assumed: with
+   administrators exempt, a direct push to `main` succeeded and printed
+   `Bypassed rule violations`; with the exemption removed, the same push is
+   refused with `GH006`.
+
+   Say what the token is, because the earlier claim here was wrong. The agent
+   authenticates as the repository owner, so it is not a lesser identity that
+   the forge holds back: what keeps it from merging its own pull request is that
+   **jalon contains no merge call at all**, and what keeps it off `main` is the
+   protection above. The agent user has no sudo, and no `NOPASSWD` exception
+   exists.
 3. **`--allowed-tools` is a guardrail, not a sandbox.** Bash rules are matched
    as prefixes against the command string, so shell composition walks around
    them: the first live run of `jalon review` produced
