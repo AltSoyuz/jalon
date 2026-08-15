@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a check on every tick would be a standing bill. Everything else doctor checks
   establishes that a binary exists and takes the right flags, which does not
   catch an expired token.
+- `jalon work -next` takes the oldest open issue labelled `implement` and builds
+  the task that names it, through the `issue:` key the review wrote. The two
+  labels are now the whole remote control: with the forge's phone app you can
+  capture an idea, agree to a task and order it built, with no shell, no SSH key
+  and no route to the server. It is not autonomy, and jalon still chooses
+  nothing: the label is a button a person pressed and the timer only delivers
+  it, an issue no task names is a refusal rather than a guess, and the label is
+  removed on publish so a tick never builds the same thing twice. The emitted
+  unit runs both stages in one tick, since a `oneshot` service takes several
+  `ExecStart` lines.
 - An issue whose work ships now closes itself. `jalon review` has its writing
   phase record the issue number on the task (`jalon new -issue N`, the core verb
   that already owns that key), and `jalon work` puts `Closes #N` in its pull

@@ -150,10 +150,13 @@ TASK
   ;;
 esac`
 
-// happyGH answers the two forge calls a review makes.
+// happyGH answers every forge call a job makes, including the queue: both
+// review and work resolve one from a label, so a stub that answers everything
+// has to answer that too.
 const happyGH = `case "$1 $2" in
 "auth status") echo "Logged in to github.com" ;;
 "api -i")      echo "X-Oauth-Scopes: repo, read:org" ;;
+"issue list")  printf '[{"number":42}]' ;;
 "issue view")  printf '{"number":42,"title":"health is slow","body":"it feels slow","url":"https://example.invalid/42","state":"OPEN"}' ;;
 "pr create")   echo "https://example.invalid/pull/7" ;;
 "issue edit")  echo "edited" ;;

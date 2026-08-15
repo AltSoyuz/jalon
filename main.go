@@ -44,6 +44,7 @@ jalon that calls a model (see docs/agent.md):
   doctor               check that this machine can run an agent job
   review <issue>       measure a GitHub issue, propose a task in a pull request
   work <id>            implement an agreed task, behind the repository criterion
+                       (-next takes the oldest issue labelled "implement")
   agent-init           print the config, unit and timer for a machine; installs
                        nothing, read it before you run it
 

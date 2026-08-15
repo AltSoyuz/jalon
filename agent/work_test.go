@@ -160,6 +160,110 @@ func TestWorkClosesNothingWhenTheTaskCarriesNoIssue(t *testing.T) {
 	}
 }
 
+// The label is the whole remote control: a person adds it from a phone and the
+// timer delivers it. jalon never chooses what to build, which is why -next
+// resolves an issue to the task that names it rather than to anything else.
+func TestWorkNextTakesTheLabelledIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  echo done`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	var out, errb strings.Builder
+	res, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil {
+		t.Fatalf("work -next failed: %v", err)
+	}
+	if res.TaskID != workTaskID {
+		t.Errorf("task = %q, want the one naming issue 42", res.TaskID)
+	}
+	// Out of the queue, or the next tick builds it again and spends the cap.
+	var removed bool
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "issue edit") && strings.Contains(c, "--remove-label "+LabelImplement) {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Error("the label was left in place, so the next tick would implement it again")
+	}
+}
+
+// An empty queue is the normal state of a timer between jobs. A unit that
+// failed hourly on it would train everyone to ignore it.
+func TestWorkNextWithNothingLabelled(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
+	s.add(t, "gh", `case "$1 $2" in
+"issue list") echo "[]" ;;
+*) echo "unexpected gh: $*" >&2; exit 1 ;;
+esac`)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	var out, errb strings.Builder
+	res, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err != nil {
+		t.Fatalf("an empty queue must succeed quietly: %v", err)
+	}
+	if res.PR != "" || res.TaskID != "" {
+		t.Errorf("an empty queue produced %+v", res)
+	}
+	if n := len(s.models(t)); n != 0 {
+		t.Errorf("the model was called %d times on an empty queue", n)
+	}
+	if !strings.Contains(errb.String(), LabelImplement) {
+		t.Errorf("stderr does not say what it looked for:\n%s", errb.String())
+	}
+}
+
+// The label says "implement this". Which task that means is written in the
+// task, and jalon does not invent it.
+func TestWorkNextRefusesWhenNoTaskNamesTheIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed") // no issue key
+
+	var out, errb strings.Builder
+	_, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err == nil {
+		t.Fatal("a labelled issue no task names must refuse")
+	}
+	if !strings.Contains(err.Error(), "42") {
+		t.Errorf("the refusal does not name the issue: %v", err)
+	}
+	if n := len(s.models(t)); n != 0 {
+		t.Errorf("the model was called %d times with nothing to build", n)
+	}
+}
+
+// Two tasks naming one issue is a person's mistake to resolve, not something to
+// pick between.
+func TestWorkNextRefusesWhenTwoTasksNameTheIssue(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "should never run"`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+	mustWrite(t, filepath.Join(root, ".tasks", "260815-a-second-task.md"),
+		"---\nstatus: proposed\ncreated: 2026-08-15\nissue: 42\nlinks: []\n---\n\n# Second\n\n## Context\n\nAlso 42.\n")
+
+	var out, errb strings.Builder
+	_, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err == nil {
+		t.Fatal("two tasks naming one issue must refuse rather than pick")
+	}
+	for _, want := range []string{workTaskID, "260815-a-second-task"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %s: %v", want, err)
+		}
+	}
+}
+
 // The criterion is the gate and the whole gate: no judgement on what the model
 // wrote, just the repository's own command.
 func TestWorkStopsWhenTheCriterionFails(t *testing.T) {
