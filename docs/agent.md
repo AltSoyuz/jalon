@@ -89,8 +89,14 @@ the facts facts.
 
 1. Load the config, run the `doctor` checks, refuse on any failure.
 2. Read the issue: one `gh issue view`.
-3. Create an ephemeral git worktree, detached from `default_branch`, and
-   materialize the embedded skills into its `.claude/skills/`.
+3. `git fetch origin <default_branch>`, then create an ephemeral git worktree
+   detached from what that retrieved, and materialize the embedded skills into
+   its `.claude/skills/`. The job runs on what the forge has, never on what this
+   clone happens to hold: nothing updates a target repository's checkout, since
+   the unit pulls the jalon checkout and only that. A failed fetch is fatal,
+   unlike that pull, because running on the tree you already have is the defect
+   rather than a reasonable answer to a blip. Your own branch and working tree
+   are never touched.
 4. **Phase 1, facts.** `claude -p` with no write tool at all. Its Bash policy is
    built from `probes.allowed` and nothing else. jalon captures its stdout and
    writes `facts.md` itself.

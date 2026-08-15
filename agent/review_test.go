@@ -221,6 +221,65 @@ esac`)
 	}
 }
 
+// Nothing updates a target repository's checkout: the unit pulls the jalon
+// checkout and only that. A job therefore has to run on what the forge has, or
+// it measures stale code and commits on top of an ancestor.
+func TestTheWorktreeIsCutFromOriginNotFromTheLocalBranch(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+
+	// A commit that is on origin and not in this checkout, which is the state
+	// every target repository is in a few days after it is cloned.
+	mustWrite(t, filepath.Join(root, "MERGED_ELSEWHERE.md"), "landed while this clone was not looking\n")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "merged elsewhere")
+	mustGit(t, root, "push", "-q", "origin", "main")
+	mustGit(t, root, "reset", "-q", "--hard", "HEAD~1")
+	if _, err := os.Stat(filepath.Join(root, "MERGED_ELSEWHERE.md")); !os.IsNotExist(err) {
+		t.Fatal("the fixture failed to put the checkout behind origin")
+	}
+
+	var out, errb strings.Builder
+	res, err := Review(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{Issue: 42, TasksDir: filepath.Join(root, ".tasks"), KeepWorktree: true})
+	if err != nil {
+		t.Fatalf("review failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, res.Worktree, "MERGED_ELSEWHERE.md")); err != nil {
+		t.Errorf("the worktree was cut from the local branch, so the job ran on stale code: %v", err)
+	}
+	// And the local checkout is still untouched, which is the reason this is a
+	// fetch and a detached worktree rather than a pull.
+	if _, err := os.Stat(filepath.Join(root, "MERGED_ELSEWHERE.md")); !os.IsNotExist(err) {
+		t.Error("the fetch moved the local working tree, which jalon must never do")
+	}
+}
+
+// Fatal, unlike the unit's pull: running on the tree you already have is the
+// defect this fetch exists to remove.
+func TestAJobRefusesToRunWhenItCannotReachOrigin(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+	mustGit(t, root, "remote", "remove", "origin")
+
+	_, _, _, err := runReview(t, root)
+	if err == nil {
+		t.Fatal("a job that cannot reach origin must refuse to start")
+	}
+	if !strings.Contains(err.Error(), "stale") {
+		t.Errorf("the failure does not say why it refuses: %v", err)
+	}
+	// No phase ran, so nothing was spent on a tree that could not be trusted.
+	if n := len(s.models(t)); n != 0 {
+		t.Errorf("the model was called %d times despite an unreachable origin", n)
+	}
+}
+
 // The gate is the reason this design is worth anything: no facts, no task.
 func TestReviewGateRefusesNarration(t *testing.T) {
 	s := newStubs(t)
