@@ -115,15 +115,19 @@ the facts facts.
    unlike that pull, because running on the tree you already have is the defect
    rather than a reasonable answer to a blip. Your own branch and working tree
    are never touched.
-4. **Phase 1, facts.** `claude -p` with no write tool at all. Its Bash policy is
-   built from `probes.allowed` and nothing else. jalon captures its stdout and
-   writes `facts.md` itself.
-5. **The gate.** Go code, not a prompt, checks that `facts.md` is not a stub and
-   holds at least one executed command block. Writing before facts is impossible
-   by construction. It stops the job for narration and nothing else; a command
-   that is not a probe, or one composed of several, is reported on stderr and in
-   the pull request body for a person to check, because three live runs stopped
-   on how a command was written while the measurements were sound every time.
+4. **Phase 1, the probes.** `claude -p` with `Read`, `Grep` and `Glob` and no
+   shell at all. It reads the task and the tree and prints the commands worth
+   running, one per line. jalon then runs, itself and with no shell, every line
+   that is on `probes.allowed` and not composed of several commands, and writes
+   `facts.md` from the real output: the command as asked, what it printed, the
+   exit status when it failed. No block in that document was written by a
+   model, so a fabricated one is impossible rather than caught.
+5. **The gate.** At least one probe ran, counted by jalon. It is the whole gate.
+   Writing before measuring is impossible by construction. Refused lines (not on
+   the list, composed, or naming a program the machine lacks) are named in the
+   document, on stderr and in the pull request body, and are never fatal while
+   one probe ran, because three live runs stopped on how a command was written
+   while the measurements were sound every time.
 6. **The skeptic.** A second, separate read-only invocation whose only task is
    to refute the task's premise with a command. One pass, no loop, no debate.
 7. **Phase 2, the task file.** The model may now write, and rewrites exactly
@@ -146,8 +150,9 @@ documented in [`workflow.md`](./workflow.md) for agreeing on a task before
 anyone writes code. Merging **is** the agreement; setting the status to
 `implement` afterwards is the order to build.
 
-Each phase leaves what it printed in `.jalon-review/`, as `facts.md`,
-`skeptic.md` and `task.md`, written before the phase's error is checked. A phase
+Each phase leaves what it printed in `.jalon-review/`, as `probes.md`,
+`skeptic.md` and `task.md`, beside the `facts.md` jalon wrote, all written
+before the phase's error is checked. A phase
 whose output is discarded cannot be diagnosed when it fails, and the writing
 phase failed on a real job having created nothing readable at all.
 
@@ -326,10 +331,11 @@ out-of-git state that drifts between servers.
    as prefixes against the command string, so shell composition walks around
    them: the first live run of `jalon review` produced
    `ls -la .tasks/*.md | wc -l`, which an entry for `ls` covered. jalon refuses
-   every shell metacharacter in a probe, and the gate refuses a *reported*
-   command containing one, so the facts cannot claim a composed line. Neither
-   stops a model from composing one at runtime. Anything reading this design as
-   "the model is sandboxed by the allowlist" has it wrong.
+   every shell metacharacter in a probe, and the probes it runs itself for the
+   facts go through no shell at all. The skeptic and the work phase still hold
+   a shell, and nothing stops a model from composing a line there at runtime.
+   Anything reading this design as "the model is sandboxed by the allowlist"
+   has it wrong.
 
 Probes are local `curl` by design, which means the agent user can reach whatever
 listens on localhost. Keep the allowlist to read-only endpoints, and put a
@@ -337,19 +343,14 @@ comment on any probe that is not.
 
 ## Known limits
 
-- **The gate does not prove execution.** It proves the phase produced a command
-  block rather than narration, which is the common failure. A fabricated block
-  passes, and a live run produced exactly that: a `$ which gh` block with
-  plausible output for a command that was not a probe, where the document itself
-  cannot say whether it ran or was inferred from the environment. Removing that
-  class means having jalon run the probes itself and build `facts.md` from its
-  own output; that is the intended next step, not a thing that is done.
-- **A `$ ` block is a claim about a shell command.** The gathering phase also
-  has read tools, and its first live run rendered a `Grep` tool call as
-  `$ grep -rn ...`, which the gate then refused because `grep` was not a probe.
-  The skill now reserves `$ ` blocks for real shell commands and asks for prose
-  with a file and a line number otherwise. If a review fails on a command you
-  did not put in `probes.allowed`, check which of the two it was.
+- **The probes are chosen in one shot.** The gathering phase has no shell, so
+  it cannot run a probe, read the answer and choose the next one; it reads the
+  tree and names its measurements once. The skeptic still iterates with a
+  shell. If a review keeps refusing the same line, the fix is one entry in
+  `probes.allowed`, and the refused line is in the pull request body to copy.
+  Earlier versions let the phase run the probes itself and checked its prose
+  for command blocks; a live run produced a plausible `$ which gh` block for a
+  command that never ran, which is the class this design removes.
 - **POSIX only.** The criterion runs through `sh -c`, and the tests stub
   programs with `/bin/sh` scripts. Windows is already outside the test matrix.
 - **Pinned model ids go stale, and that is the point.** An alias silently

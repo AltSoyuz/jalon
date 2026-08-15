@@ -1,104 +1,57 @@
 ---
 name: jalon-review-facts
-description: Gather the measured facts about a queued task by running probes and pasting their output verbatim. Phase one of jalon review.
+description: Choose the probes that will establish the measured facts about a queued task. You propose commands; jalon runs them and writes the facts document from their real output. Phase one of jalon review.
 ---
 
-# Gathering facts
+# Choosing the probes
 
-Your entire output is a facts document. You are not designing anything, and you
-are not proposing anything. If you find yourself writing "we should", "this
-would" or "the fix is", stop and delete the sentence.
+Your entire output is a list of commands, one per line. jalon runs every line
+that is on the probe list, exactly as written, with no shell, and writes the
+facts document itself from what each command really printed. You are not
+designing anything, you are not proposing anything, and you are not writing the
+facts: you are choosing which measurements to take.
 
-## Start from the digest, never from a cold read
+## Start from the task, then from the tree
 
-Run `jalon digest <id>` on the task you were given: it inlines its linked
-files, its commits and its issue thread when it names one. Then `jalon list`
-and a digest of anything related. A digest costs five to twelve thousand
-tokens; exploring a repository cold costs twenty to forty thousand and tells
-you less. If no other task relates, say so in one line and move on.
+Read `.tasks/<id>.md`, the file you were given on stdin. Its title and Context
+are what a person thinks; that is the premise to measure. Read the files it
+links, and grep the tree for what it names. You have `Read`, `Grep` and `Glob`
+and nothing else: you cannot run a command yourself, so what you learn by
+reading is what tells you which commands are worth running.
 
-## Every claim carries the command that established it
+## What to print
 
-For each thing you assert, run the command and paste the transcript in exactly
-this shape:
+One command per line, and nothing else on the line. No prose, no headings, no
+`$ `, no code fence, no comment: a line that is not a command is refused and
+listed in the facts document as refused, and a document where nothing ran
+stops the job.
 
-    ```console
+**The exact list of commands you may run is given to you on stdin.** Every
+line you print must start with one of them, followed by its arguments. Anything
+else is refused, and there is no way around that: no other shell, no pipeline,
+no `&&`, no redirection. If you want a count, ask for the listing; the next
+phase counts.
+
+Good:
+
+    jalon digest 260813-health-endpoint-is-slow
+    curl -s http://localhost:8080/healthz
+    curl -s -o /dev/null -w %{time_total} http://localhost:8080/report
+
+Refused:
+
+    ls .tasks | wc -l
     $ curl -s http://localhost:8080/healthz
-    {"status":"ok","uptime_s":91422}
-    ```
+    Then I would check the logs.
 
-The first line inside the fence is the command, prefixed with `$ `. What
-follows is its output, verbatim and untouched. Do not summarize it, do not
-tidy it, do not elide the boring middle.
+## Choose measurements, not confirmations
 
-**A claim with no command block above it does not belong in the document.**
-jalon checks for those blocks and stops the job when it finds none, because a
-review written on narration is worth nothing.
+Most task stubs assert something that was never checked: a thing is slow, a
+case is hit, a component behaves some way. Pick the commands whose output
+would settle that assertion either way. Numbers, not adjectives: a probe that
+prints a duration or a count is worth three that print "ok".
 
-### A `$ ` block means a shell command you actually ran
-
-This is the rule people get wrong, and jalon stops the job over it.
-
-A `$ ` line is a claim that you executed exactly that command in a shell. Only
-write one when that is true.
-
-Reading a file, searching the tree or listing paths with your own tools is not
-a shell command. Report those in **prose, with a file and a line number**:
-
-> `resolveTask` globs the id and parses only the matched file
-> (`main.go:171-198`), so nothing re-reads every task per call.
-
-Never dress a file read or a search up as `$ cat ...` or `$ grep ...`. That
-turns a thing you did into a claim about a command that never ran, and jalon
-refuses the whole document for it.
-
-### One command per block, no shell plumbing
-
-No pipes, no `;`, no `&&`, no subshells, no redirection. The allowlist matches
-one command, so a composed line cannot be checked against it and jalon refuses
-it. If you want a count, run the command and count in prose:
-
-    ```console
-    $ ls .tasks
-    260806-a.md
-    260807-b.md
-    ```
-
-    Two task files.
-
-not `$ ls .tasks | wc -l`.
-
-## When a probe is refused
-
-**The exact list of commands you may run is given to you on stdin.** Read it
-before you start. Anything outside it is denied, and there is no way around
-that: no other shell, no rewriting it as a pipeline, no guessing the output.
-
-If you need something that is not on the list, say so in **prose**, in the
-"what could not be measured" section:
-
-> `which` is not on the probe list, so I could not establish whether the
-> binary on `PATH` is prebuilt or compiled per call.
-
-**Never put a refused command in a `$ ` block.** A block means "I ran this and
-here is the output". A command you were denied is the opposite of that, and
-jalon stops the whole job when it finds one, because it cannot tell a denied
-command from an invented one.
-
-The person running this will add it to `probes.allowed` and re-run.
-
-## Numbers, not adjectives
-
-"slow" is not a fact. "p95 is 1.9 s over 200 requests, measured with the block
-below" is. If you could not measure something, the fact is that you could not
-measure it, and that is worth writing down too.
-
-## Shape
-
-Write, in this order:
-
-1. **What the task claims**, in one or two lines: its title and its Context are what a person thinks; that is the premise.
-2. **What was measured**, as command blocks with a line of context each.
-3. **What could not be measured**, and why.
-
-Nothing else. The next phase decides what any of it means.
+If a measurement you need is not on the list, do not fake it and do not print
+it: it will be refused and named in the document, and the person running this
+adds it to `probes.allowed` and re-runs. Three to eight commands is the usual
+size; twenty means you are exploring, and exploring is what `Read` is for.
