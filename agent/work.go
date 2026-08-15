@@ -90,8 +90,19 @@ func Work(ctx context.Context, env Env, opt WorkOptions) (WorkResult, error) {
 	if err != nil {
 		return res, fmt.Errorf("work: %w", err)
 	}
+	// Parked out of the way and out of the queue, for the reasons given in
+	// Review: one failure must cost one item, not the night.
 	keep := func(err error) (WorkResult, error) {
-		res.Worktree = wt.rel
+		res.Worktree = failJob(ctx, env, cfg, wt, err)
+		if issueNo != 0 {
+			if uerr := unlabel(ctx, env.Root, issueNo, LabelImplement); uerr != nil {
+				fmt.Fprintf(env.Stderr, "jalon: issue #%d still carries the %q label, so the next tick will try it again: gh issue edit %d --remove-label %s (%v)\n",
+					issueNo, LabelImplement, issueNo, LabelImplement, uerr)
+			} else {
+				fmt.Fprintf(env.Stderr, "jalon: issue #%d left the queue; to retry it once the cause is fixed: gh issue edit %d --add-label %s\n",
+					issueNo, issueNo, LabelImplement)
+			}
+		}
 		return res, err
 	}
 	if _, err := materializeSkills(wt.path); err != nil {

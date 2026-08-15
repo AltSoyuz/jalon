@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,7 +175,7 @@ esac`)
 	if res.Worktree == "" {
 		t.Fatal("the worktree must be kept, or there is nothing left to read")
 	}
-	saved := filepath.Join(root, ".jalon", "worktrees", "review-42", reviewDir, "task.md")
+	saved := filepath.Join(root, res.Worktree, reviewDir, "task.md")
 	b, rerr := os.ReadFile(saved)
 	if rerr != nil {
 		t.Fatalf("the writing phase output was discarded: %v", rerr)
@@ -211,7 +212,7 @@ esac`)
 	if res.Worktree == "" {
 		t.Fatal("the worktree must be kept, or there is nothing left to read")
 	}
-	saved := filepath.Join(root, ".jalon", "worktrees", "review-42", reviewDir, "skeptic.md")
+	saved := filepath.Join(root, res.Worktree, reviewDir, "skeptic.md")
 	b, rerr := os.ReadFile(saved)
 	if rerr != nil {
 		t.Fatalf("the skeptic phase output was discarded: %v", rerr)
@@ -648,5 +649,79 @@ esac`)
 	}
 	if !strings.Contains(errb, "measure it again") || !strings.Contains(errb, "--remove-label") {
 		t.Errorf("the warning must name the consequence and the manual fix:\n%s", errb)
+	}
+}
+
+// One failure must cost one issue, not the night. Before this, a failed job
+// kept its worktree where doctor looks, doctor refused the next job, and an
+// hourly timer stayed frozen until a person came back. The wreck is now parked
+// under .jalon/failed, the issue leaves the queue, and the next tick runs.
+func TestAFailedReviewIsParkedAndTheNextJobRuns(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", `case "$*" in
+*--version*) echo "9.9.9 (Claude Code)" ;;
+*--help*)    echo "--print --model --output-format --permission-mode --allowed-tools --disallowed-tools --tools --append-system-prompt --max-budget-usd" ;;
+*jalon-review-facts*) echo "The budget ran out."; exit 1 ;;
+esac`)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+
+	res, _, errb, err := runReview(t, root)
+	if err == nil {
+		t.Fatal("a failing facts phase must fail the review")
+	}
+	if !strings.HasPrefix(res.Worktree, filepath.FromSlash(failedDir)) {
+		t.Fatalf("worktree = %q, want it parked under %s", res.Worktree, failedDir)
+	}
+	if b, rerr := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "facts.md")); rerr != nil || !strings.Contains(string(b), "budget") {
+		t.Errorf("the evidence did not survive the move: %v %q", rerr, b)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, ".jalon", "worktrees")); len(entries) != 0 {
+		t.Errorf("the running-jobs directory is not empty after the failure: %v", entries)
+	}
+	// Out of the queue, and the message says how to put it back.
+	var left bool
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "issue edit 42 --remove-label "+LabelMeasure) {
+			left = true
+		}
+	}
+	if !left {
+		t.Error("the failed issue was left in the queue, so the next tick would repeat the failure")
+	}
+	if !strings.Contains(errb, "--add-label "+LabelMeasure) {
+		t.Errorf("the message must say how to retry:\n%s", errb)
+	}
+	// The next job is not blocked: doctor warns, it does not fail.
+	r, _, _ := runDoctor(t, root)
+	if c := state(t, r, "git"); c.State != Warn {
+		t.Errorf("git = %s after a parked failure, want warn: the next job must run", c.State)
+	}
+	// And a second job of the same name parks over the first wreck.
+	if _, _, _, err := runReview(t, root); err == nil {
+		t.Fatal("the second run must fail the same way")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, ".jalon", "failed")); len(entries) != 1 {
+		t.Errorf("want one wreck per job name, got %d", len(entries))
+	}
+}
+
+// Ten wrecks are more than anyone reads; the eleventh job refuses before it
+// spends a token, and names the directory.
+func TestTheFailedDirectoryHasACap(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	root := newRepo(t, reviewTOML)
+	for i := 0; i < maxFailed; i++ {
+		mustWrite(t, filepath.Join(root, ".jalon", "failed", fmt.Sprintf("review-%d", i), "x"), "")
+	}
+
+	_, _, _, err := runReview(t, root)
+	if err == nil || !strings.Contains(err.Error(), failedDir) {
+		t.Fatalf("want a refusal naming %s, got %v", failedDir, err)
+	}
+	if n := len(s.models(t)); n != 0 {
+		t.Errorf("the model was called %d times before the refusal", n)
 	}
 }

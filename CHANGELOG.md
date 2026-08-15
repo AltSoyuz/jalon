@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A failed `review` or `work` parks its worktree under `.jalon/failed/` and
+  takes the issue out of the queue, so the next tick runs the next item instead
+  of the machine waiting for a person; `doctor` warns while wrecks are kept and
+  the eleventh job refuses.
+
 - Optional agent layer, in its own `agent/` package: `jalon doctor` checks that
   a machine can run an agent job, and `jalon review <issue>` turns a GitHub
   issue into a measured task proposal in a pull request. It reads

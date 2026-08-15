@@ -407,3 +407,39 @@ func TestWorkRefusesADoneTask(t *testing.T) {
 		t.Errorf("the model was called %d times for a done task", n)
 	}
 }
+
+// A failed work -next leaves the queue like a published one, and its wreck is
+// parked so the next tick runs: one failure costs one item, not the night.
+func TestAFailedWorkLeavesTheQueueAndIsParked(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWorks(`  echo "- a note" > NOTE.md
+  touch BROKEN
+  echo "done, criterion red"`))
+	s.add(t, "gh", happyGH)
+	root := newWorkRepo(t, "proposed", "issue: 42\n")
+
+	var out, errb strings.Builder
+	res, err := Work(context.Background(),
+		Env{Root: root, Stdout: &out, Stderr: &errb}, WorkOptions{Next: true})
+	if err == nil {
+		t.Fatal("a red criterion must fail the work")
+	}
+	if !strings.HasPrefix(res.Worktree, filepath.FromSlash(failedDir)) {
+		t.Errorf("worktree = %q, want it parked under %s", res.Worktree, failedDir)
+	}
+	if _, serr := os.Stat(filepath.Join(root, res.Worktree, "BROKEN")); serr != nil {
+		t.Errorf("the failing change is not in the parked worktree: %v", serr)
+	}
+	var removed bool
+	for _, c := range s.of(t, "gh") {
+		if strings.Contains(c, "issue edit") && strings.Contains(c, "--remove-label "+LabelImplement) {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Error("the failed issue was left in the queue, so the next tick would repeat the failure")
+	}
+	if !strings.Contains(errb.String(), "--add-label "+LabelImplement) {
+		t.Errorf("the message must say how to retry:\n%s", errb.String())
+	}
+}

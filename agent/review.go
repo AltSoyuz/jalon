@@ -81,9 +81,19 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	if err != nil {
 		return res, fmt.Errorf("review: %w", err)
 	}
-	// Every failure from here keeps the worktree, and every path out says so.
+	// Every failure from here keeps the worktree, parked out of the way, and
+	// every path out says so. The issue leaves the queue too: a failed job that
+	// stays queued is retried every tick, and on a timer that spends the daily
+	// cap on one issue. The message says how to put it back.
 	keep := func(err error) (ReviewResult, error) {
-		res.Worktree = wt.rel
+		res.Worktree = failJob(ctx, env, cfg, wt, err)
+		if uerr := unlabel(ctx, env.Root, iss.Number, LabelMeasure); uerr != nil {
+			fmt.Fprintf(env.Stderr, "jalon: issue #%d still carries the %q label, so the next tick will try it again: gh issue edit %d --remove-label %s (%v)\n",
+				iss.Number, LabelMeasure, iss.Number, LabelMeasure, uerr)
+		} else {
+			fmt.Fprintf(env.Stderr, "jalon: issue #%d left the queue; to retry it once the cause is fixed: gh issue edit %d --add-label %s\n",
+				iss.Number, iss.Number, LabelMeasure)
+		}
 		return res, err
 	}
 	if _, err := materializeSkills(wt.path); err != nil {
@@ -398,6 +408,19 @@ func idDatePrefix(id string) string {
 		return id[:6]
 	}
 	return id
+}
+
+// failJob is what every failure after the worktree exists goes through: the
+// worktree is parked under failedDir, the failure is notified with the path
+// to read, and the returned path is what the result reports. It never hides
+// the original error; it adds where the evidence went.
+func failJob(ctx context.Context, env Env, cfg *Config, wt *worktree, cause error) string {
+	rel, err := wt.park(ctx)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "jalon: %v\n", err)
+	}
+	notify(ctx, env, cfg, fmt.Sprintf("jalon %s failed: %v\nkept at %s", filepath.Base(wt.path), cause, rel))
+	return rel
 }
 
 // notify hands the message to one command on stdin. jalon does not know your

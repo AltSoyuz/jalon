@@ -295,6 +295,12 @@ func gitCheck(ctx context.Context, root string, cfg *Config) Check {
 			Fix: fmt.Sprintf("a previous review kept its worktree for inspection; read it, then: git worktree remove --force %s",
 				filepath.Join(cfg.Review.Worktrees, names[0]))}
 	}
+	// Parked wrecks do not block a job until the cap, so they are a warning:
+	// what a person needs to know is that there is something to read.
+	if n := countFailed(root); n > 0 {
+		return Check{Name: "git", State: Warn, Detail: fmt.Sprintf("%d failed job(s) kept", n),
+			Fix: fmt.Sprintf("read them, then: git worktree remove --force %s/<name>; at %d the next job refuses", failedDir, maxFailed)}
+	}
 	// A dirty tree is deliberately a warning. Every review runs in its own
 	// detached worktree branched from the default branch, so uncommitted work
 	// here does not affect it; failing on it would make doctor red for anyone
