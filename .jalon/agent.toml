@@ -1,0 +1,37 @@
+[agent]
+model_triage           = "claude-haiku-4-5"
+model_review           = "claude-sonnet-5"
+model_work             = "claude-sonnet-5"
+max_budget_usd_per_job = 3.0
+daily_job_cap          = 5
+counter_file           = ".jalon/agent-jobs-today"
+timeout_seconds        = 900
+
+[review]
+default_branch = "main"
+worktrees      = ".jalon/worktrees"
+
+[criterion]
+command = "make check"
+
+[notify]
+# One command, the message on stdin. The ntfy server and the token come from
+# the machine's environment file (the unit's EnvironmentFile), never from this
+# versioned file; the topic is the only thing named here.
+command = 'curl -fsS -H "Authorization: Bearer $NTFY_TOKEN" -H "Title: jalon" -d @- "$NTFY_URL/jalon"'
+
+[probes]
+# The only commands a phase may run. Prefix match, no shell characters. The
+# criterion is made of these, which is how a work phase iterates on it.
+allowed = [
+  "jalon digest",
+  "jalon list",
+  "git log",
+  "git diff",
+  "gofmt",
+  "go build",
+  "go vet",
+  "go test",
+  "make check",
+  "make staticcheck",
+]
