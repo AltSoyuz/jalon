@@ -130,13 +130,14 @@ jalon recap -days 7 -metrics ~/jalon-metrics.jsonl \
   ~/target-one ~/target-two
 ```
 
-Per target: tasks `doing` for more than a fortnight (drift, not count), tasks
-`proposed` that nobody queued (an agreement waiting silently), what is queued,
-pull requests the agent opened and nobody merged or closed, wrecks in
-`.jalon/failed/`, done tasks whose linked files changed since they closed (the
-ground under a decision moved), and the merged work branches untouched by a
-person. Then, machine wide, the jobs and the dollars of the week; a tick that
-found nothing queued has no id and is not a job.
+Plain text for a phone screen, no markdown syntax, titles before ids, empty
+sections and silent repositories left out. In this order: what waits on you
+(agreed tasks nobody queued, pull requests the agent opened, failed jobs to
+read, tasks doing for more than a fortnight), what is queued for the agent,
+what is open per repository, done tasks whose linked files changed since they
+closed (the ground under a decision moved; worth a look, not an alarm), and
+the agent's week: jobs, dollars, merged work branches untouched by a person.
+A tick that found nothing queued has no id and is not a job.
 
 `-notify` is one command receiving the recap on stdin, the same idea as
 `[notify]` in `agent.toml`; absent, the recap goes to stdout and the journal

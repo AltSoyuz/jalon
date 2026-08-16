@@ -44,15 +44,11 @@ func Recap(ctx context.Context, env Env, opt RecapOptions) error {
 			return fmt.Errorf("recap: %s is not on PATH", tool)
 		}
 	}
-	var b strings.Builder
-	host, _ := os.Hostname()
-	fmt.Fprintf(&b, "# jalon recap, %s, last %d days, %s\n\n", opt.Now.UTC().Format("2006-01-02"), opt.Days, host)
+	var repos []repoFacts
 	for _, repo := range opt.Repos {
-		recapRepo(ctx, &b, repo, opt)
+		repos = append(repos, gather(ctx, repo, opt))
 	}
-	recapMachine(&b, opt)
-
-	out := b.String()
+	out := render(repos, opt)
 	fmt.Fprint(env.Stdout, out)
 	if opt.Notify != "" {
 		if _, err := run(ctx, runOpts{name: "sh", args: []string{"-c", opt.Notify}, stdin: out, timeout: 60 * time.Second}); err != nil {
@@ -62,51 +58,53 @@ func Recap(ctx context.Context, env Env, opt RecapOptions) error {
 	return nil
 }
 
-func recapRepo(ctx context.Context, b *strings.Builder, repo string, opt RecapOptions) {
-	name := filepath.Base(repo)
-	fmt.Fprintf(b, "## %s\n\n", name)
+// repoFacts is what one repository has to say, gathered first and rendered
+// after, so the text can lead with what waits on a person across every
+// repository and skip what has nothing to say.
+type repoFacts struct {
+	name           string
+	noTasks        bool
+	doing, todo    []listedTask
+	stale          []listedTask // doing for longer than staleAfter
+	proposed       []listedTask // agreed, never queued
+	measure        []listedTask
+	implement      []listedTask
+	prs            []prRef
+	wrecks         []string
+	moved          []movedDecision
+	merged, intact int // merged work branches, and those untouched by a person
+	hasForge       bool
+}
+
+type movedDecision struct {
+	task    listedTask
+	closed  string
+	commits int
+	files   []string
+}
+
+func gather(ctx context.Context, repo string, opt RecapOptions) repoFacts {
+	f := repoFacts{name: filepath.Base(repo)}
 	tasks := filepath.Join(repo, ".tasks")
 	if _, err := os.Stat(tasks); err != nil {
-		fmt.Fprintf(b, "- no .tasks directory\n\n")
-		return
+		f.noTasks = true
+		return f
 	}
-	slug := repoSlug(ctx, repo)
-
-	// Open tasks, and the ones doing for longer than a fortnight: that is the
-	// signal of drift, not the count.
-	doing := listTasks(ctx, tasks, "doing")
-	todo := listTasks(ctx, tasks, "todo")
-	fmt.Fprintf(b, "- open: %d doing, %d todo\n", len(doing), len(todo))
-	for _, t := range doing {
-		if age := opt.Now.Sub(idDate(t.id)); age > staleAfter {
-			fmt.Fprintf(b, "  - doing for %d days: %s\n", int(age.Hours()/24), t.id)
+	f.doing = listTasks(ctx, tasks, "doing")
+	f.todo = listTasks(ctx, tasks, "todo")
+	for _, t := range f.doing {
+		if opt.Now.Sub(idDate(t.id)) > staleAfter {
+			f.stale = append(f.stale, t)
 		}
 	}
-	// Agreed and never queued: a merged proposal whose status nobody moved to
-	// implement is a decision waiting, and it waits silently.
-	for _, t := range listTasks(ctx, tasks, "proposed") {
-		fmt.Fprintf(b, "- proposed, not queued: %s (%s)\n", t.id, t.title)
-	}
-	for _, st := range []string{StatusMeasure, StatusImplement} {
-		for _, t := range listTasks(ctx, tasks, st) {
-			fmt.Fprintf(b, "- queued %s: %s\n", st, t.id)
-		}
-	}
-	// Pull requests the agent opened and nobody merged or closed.
-	if slug != "" {
-		for _, pr := range openAgentPRs(ctx, repo, slug) {
-			fmt.Fprintf(b, "- pull request waiting since %s: %s\n", pr.CreatedAt[:min(10, len(pr.CreatedAt))], pr.URL)
-		}
-	}
-	// Wrecks: each one is a failed job whose task stays out of the queue until
-	// a person reads it and removes it.
+	f.proposed = listTasks(ctx, tasks, "proposed")
+	f.measure = listTasks(ctx, tasks, StatusMeasure)
+	f.implement = listTasks(ctx, tasks, StatusImplement)
 	if entries, err := os.ReadDir(filepath.Join(repo, filepath.FromSlash(failedDir))); err == nil {
 		for _, e := range entries {
-			fmt.Fprintf(b, "- wreck to read: %s/%s\n", failedDir, e.Name())
+			f.wrecks = append(f.wrecks, e.Name())
 		}
 	}
-	// Decisions whose ground moved: a done task with a linked file changed
-	// since the task closed. Candidates for a night skeptic; today, for a look.
 	for _, t := range listTasks(ctx, tasks, "done") {
 		closed, links := closedAndLinks(filepath.Join(tasks, t.id+".md"))
 		if closed == "" || len(links) == 0 {
@@ -117,26 +115,139 @@ func recapRepo(ctx context.Context, b *strings.Builder, repo string, opt RecapOp
 			continue
 		}
 		if n := len(strings.Fields(out)); n > 0 {
-			fmt.Fprintf(b, "- decision ground moved: %s closed %s, %d commit(s) since on %s\n", t.id, closed, n, strings.Join(links, ","))
+			f.moved = append(f.moved, movedDecision{task: t, closed: closed, commits: n, files: links})
 		}
 	}
-	// The first number of the work kill criterion, per repository: a work
-	// branch carries exactly one commit, so a second one is a correction.
-	if slug != "" {
-		merged, untouched := mergedWorkBranches(ctx, repo, slug)
-		if merged == 0 {
-			b.WriteString("- work branches merged: none yet\n")
-		} else {
-			fmt.Fprintf(b, "- work branches merged (last %d): %d untouched by a person\n", merged, untouched)
+	if slug := repoSlug(ctx, repo); slug != "" {
+		f.hasForge = true
+		f.prs = openAgentPRs(ctx, repo, slug)
+		f.merged, f.intact = mergedWorkBranches(ctx, repo, slug)
+	}
+	return f
+}
+
+// render writes plain text for a phone screen: what waits on a person first,
+// across repositories, then what is queued, what is open, what moved, and the
+// agent's week. No markdown syntax, since a notification shows it literally;
+// titles before ids, since a person recognizes a title; empty sections and
+// silent repositories are left out.
+func render(repos []repoFacts, opt RecapOptions) string {
+	var b strings.Builder
+	host, _ := os.Hostname()
+	fmt.Fprintf(&b, "jalon, week to %s (%s)\n", opt.Now.UTC().Format("2006-01-02"), host)
+
+	var waiting []string
+	for _, r := range repos {
+		for _, t := range r.proposed {
+			waiting = append(waiting, fmt.Sprintf("%s: agreed, not queued: %s", r.name, label(t)))
+		}
+		for _, pr := range r.prs {
+			waiting = append(waiting, fmt.Sprintf("%s: pull request since %s: %s", r.name, pr.CreatedAt[:min(10, len(pr.CreatedAt))], pr.URL))
+		}
+		for _, w := range r.wrecks {
+			waiting = append(waiting, fmt.Sprintf("%s: failed job to read: %s/%s", r.name, failedDir, w))
+		}
+		for _, t := range r.stale {
+			waiting = append(waiting, fmt.Sprintf("%s: doing for %d days: %s", r.name, int(opt.Now.Sub(idDate(t.id)).Hours()/24), label(t)))
 		}
 	}
-	b.WriteString("\n")
+	b.WriteString("\nWAITING ON YOU\n")
+	if len(waiting) == 0 {
+		b.WriteString("- nothing\n")
+	}
+	for _, w := range waiting {
+		fmt.Fprintf(&b, "- %s\n", w)
+	}
+
+	var queued []string
+	for _, r := range repos {
+		for _, t := range r.measure {
+			queued = append(queued, fmt.Sprintf("%s: to measure: %s", r.name, label(t)))
+		}
+		for _, t := range r.implement {
+			queued = append(queued, fmt.Sprintf("%s: to build: %s", r.name, label(t)))
+		}
+	}
+	if len(queued) > 0 {
+		b.WriteString("\nQUEUED FOR THE AGENT\n")
+		for _, q := range queued {
+			fmt.Fprintf(&b, "- %s\n", q)
+		}
+	}
+
+	b.WriteString("\nOPEN\n")
+	any := false
+	for _, r := range repos {
+		if r.noTasks {
+			fmt.Fprintf(&b, "- %s: no .tasks directory\n", r.name)
+			any = true
+			continue
+		}
+		if len(r.doing)+len(r.todo) == 0 {
+			continue
+		}
+		any = true
+		fmt.Fprintf(&b, "- %s: %d doing, %d todo\n", r.name, len(r.doing), len(r.todo))
+		for _, t := range r.doing {
+			fmt.Fprintf(&b, "    doing: %s\n", label(t))
+		}
+	}
+	if !any {
+		b.WriteString("- nothing open anywhere\n")
+	}
+
+	moved := false
+	for _, r := range repos {
+		if len(r.moved) > 0 {
+			moved = true
+		}
+	}
+	if moved {
+		b.WriteString("\nGROUND MOVED UNDER CLOSED DECISIONS\n")
+		b.WriteString("(a linked file changed since the task closed; worth a look, not an alarm)\n")
+		for _, r := range repos {
+			if len(r.moved) == 0 {
+				continue
+			}
+			fmt.Fprintf(&b, "- %s: %d\n", r.name, len(r.moved))
+			for i, m := range r.moved {
+				if i == 3 {
+					fmt.Fprintf(&b, "    and %d more\n", len(r.moved)-3)
+					break
+				}
+				fmt.Fprintf(&b, "    %s: %d commit(s) since %s on %s\n", label(m.task), m.commits, m.closed, strings.Join(m.files, ", "))
+			}
+		}
+	}
+
+	fmt.Fprintf(&b, "\nAGENT, LAST %d DAYS\n", opt.Days)
+	recapMachine(&b, opt)
+	var merged []string
+	for _, r := range repos {
+		if r.hasForge && r.merged > 0 {
+			merged = append(merged, fmt.Sprintf("%s %d/%d", r.name, r.intact, r.merged))
+		}
+	}
+	if len(merged) > 0 {
+		fmt.Fprintf(&b, "- work branches merged untouched by a person: %s\n", strings.Join(merged, ", "))
+	} else {
+		b.WriteString("- work branches merged: none yet\n")
+	}
+	return b.String()
+}
+
+// label is how a task is named to a person: its title, then the id in
+// parentheses because that is what a status edit or a digest needs.
+func label(t listedTask) string {
+	if t.title == "" || t.title == t.id {
+		return t.id
+	}
+	return t.title + " (" + t.id + ")"
 }
 
 // recapMachine is the second number, machine wide: the metrics line does not
 // say which repository a job ran in, so this is the bill for the machine.
 func recapMachine(b *strings.Builder, opt RecapOptions) {
-	fmt.Fprintf(b, "## this machine, last %d days\n\n", opt.Days)
 	if opt.Metrics == "" {
 		b.WriteString("- no metrics file (set JALON_METRICS or pass -metrics)\n")
 		return
@@ -182,9 +293,12 @@ func recapMachine(b *strings.Builder, opt RecapOptions) {
 			cost += *m.Cost
 		}
 	}
-	fmt.Fprintf(b, "- agent jobs: %d (%d published, %d failed)\n", jobs, jobs-failed, failed)
-	fmt.Fprintf(b, "- cost: %.2f USD reported (%d job(s) reported none)\n", cost, noCost)
-	fmt.Fprintf(b, "- per verb: review %d, work %d\n", reviews, works)
+	fmt.Fprintf(b, "- %d job(s): %d review, %d work; %d published, %d failed\n", jobs, reviews, works, jobs-failed, failed)
+	if noCost > 0 {
+		fmt.Fprintf(b, "- cost: %.2f USD reported, %d job(s) reported none\n", cost, noCost)
+	} else {
+		fmt.Fprintf(b, "- cost: %.2f USD\n", cost)
+	}
 }
 
 type listedTask struct{ id, status, title string }

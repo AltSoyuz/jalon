@@ -36,6 +36,9 @@ func TestRecap(t *testing.T) {
 	}
 	task("250101-stale-doing", "doing", "", "")
 	task("260101-agreed-and-forgotten", "proposed", "", "")
+	// A real title, so the label shows it before the id.
+	mustWrite(t, filepath.Join(root, ".tasks", "260101-agreed-and-forgotten.md"),
+		"---\nstatus: proposed\ncreated: 2026-01-01\nlinks: []\n---\n\n# Agreed and forgotten\n\n## Context\n\nx\n\n## Decisions\n\n## Log\n")
 	task("260102-queued", StatusImplement, "", "")
 	task("240101-closed-long-ago", "done", "moved.go", "- 2024-01-02 t: closed.\n")
 	mustWrite(t, filepath.Join(root, "moved.go"), "package x\n")
@@ -63,20 +66,24 @@ func TestRecap(t *testing.T) {
 	}
 	got := out.String()
 	for _, want := range []string{
-		"## " + filepath.Base(root),
-		"- open: 1 doing, 0 todo",
-		"  - doing for 592 days: 250101-stale-doing",
-		"- proposed, not queued: 260101-agreed-and-forgotten (260101-agreed-and-forgotten)",
-		"- queued implement: 260102-queued",
-		"- wreck to read: .jalon/failed/work-260102-queued",
-		"- decision ground moved: 240101-closed-long-ago closed 2024-01-02, 2 commit(s) since on moved.go",
-		"- work branches merged: none yet",
-		"- agent jobs: 2 (1 published, 1 failed)",
-		"- cost: 1.50 USD reported (1 job(s) reported none)",
-		"- per verb: review 1, work 1",
+		"WAITING ON YOU\n",
+		"- repo: agreed, not queued: Agreed and forgotten (260101-agreed-and-forgotten)\n",
+		"- repo: failed job to read: .jalon/failed/work-260102-queued\n",
+		"- repo: doing for 592 days: 250101-stale-doing\n",
+		"QUEUED FOR THE AGENT\n- repo: to build: 260102-queued\n",
+		"OPEN\n- repo: 1 doing, 0 todo\n    doing: 250101-stale-doing\n",
+		"GROUND MOVED UNDER CLOSED DECISIONS\n",
+		"- repo: 1\n    240101-closed-long-ago: 2 commit(s) since 2024-01-02 on moved.go\n",
+		"AGENT, LAST 7 DAYS\n- 2 job(s): 1 review, 1 work; 1 published, 1 failed\n- cost: 1.50 USD reported, 1 job(s) reported none\n- work branches merged: none yet\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the recap lacks %q:\n%s", want, got)
+		}
+	}
+	// No markdown syntax: a notification shows it literally.
+	for _, bad := range []string{"# ", "`", "**"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the recap carries markdown %q:\n%s", bad, got)
 		}
 	}
 	// The notify command got the same text.
