@@ -30,10 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself is built with (smallest composition, nothing hypothetical, boring
   over clever, measure, explicit failures, reversible, compatible), applied
   by every `work` job on every target.
-- `jalon recap <repo>...`: the Sunday read, per target and machine wide, of
-  what waits on a person (stale doing tasks, proposals nobody queued, waiting
-  pull requests, wrecks, decisions whose linked files moved) and what the
-  agent cost; no model. `docs/measuring.md` has the unit and timer for it.
+- `jalon recap <repo>...`: the Sunday read, plain text for a phone, leading
+  with what waits on a person (agreed tasks nobody queued, waiting pull
+  requests, failed jobs to read, stale doing tasks), then the queue, what is
+  open, decisions whose linked files moved, and the agent's week in jobs and
+  dollars; no model. `docs/measuring.md` has the unit and timer for it.
 - `docs/measuring.md` reads the two numbers of the `work` kill criterion:
   branches merged without a second commit, from `gh pr list`, and dollars per
   merged branch, from `JALON_METRICS`. Nothing new in the binary.
