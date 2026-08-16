@@ -142,7 +142,7 @@ recap() {
   echo
   if [ -n "$metrics" ] && [ -f "$metrics" ]; then
     jq -r --arg since "$since" '
-      select(.time >= $since and (.verb == "review" or .verb == "work") and .id != "") ' "$metrics" \
+      select(.time >= $since and (.verb == "review" or .verb == "work") and (.id // "") != "") ' "$metrics" \
     | jq -s -r '
       "- agent jobs: \(length) (\(map(select(.err == null)) | length) published, \(map(select(.err != null)) | length) failed)",
       "- cost: \(map(.cost_usd // 0) | add // 0 | . * 100 | round / 100) USD reported (\(map(select(.cost_usd == null)) | length) job(s) reported none)",
