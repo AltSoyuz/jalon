@@ -238,8 +238,13 @@ func captureOne(ctx context.Context, env Env, root, text, status string, m inbox
 	}
 	if _, err := git(ctx, wt.path, "push", "-q", "origin", "HEAD:"+cfg.Review.DefaultBranch); err != nil {
 		// Protected: a branch and a pull request, and the message says so.
-		branch := "task/" + c.ID
-		if _, berr := git(ctx, wt.path, "push", "-q", "origin", "HEAD:refs/heads/"+branch); berr != nil {
+		// capture/ and not task/, which review uses for the same id later;
+		// forced, because a retry of the same line lands on the same branch.
+		branch := "capture/" + c.ID
+		if _, serr := git(ctx, wt.path, "switch", "-q", "-C", branch); serr != nil {
+			return c, serr
+		}
+		if _, berr := git(ctx, wt.path, "push", "-q", "--force", "-u", "origin", branch); berr != nil {
 			return c, fmt.Errorf("cannot push the stub to %s (%v) nor to %s: %w", cfg.Review.DefaultBranch, err, branch, berr)
 		}
 		pr, perr := createPR(ctx, wt.path, "Capture: "+c.ID, fmt.Sprintf("Task stub captured from the inbox, queued as `%s`. %s is protected, so this needs a merge; the stub is the whole change.\n", status, cfg.Review.DefaultBranch))

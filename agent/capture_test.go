@@ -140,7 +140,7 @@ func TestCaptureOnAProtectedBranchOpensAPullRequest(t *testing.T) {
 	if len(res.Captured) != 1 || res.Captured[0].PR != "https://example.invalid/pull/9" {
 		t.Fatalf("captured = %+v, want one stub with a pull request", res.Captured)
 	}
-	if out := gitOut(t, root, "ls-remote", "--heads", "origin", "task/*"); !strings.Contains(out, "task/"+res.Captured[0].ID) {
+	if out := gitOut(t, root, "ls-remote", "--heads", "origin", "capture/*"); !strings.Contains(out, "capture/"+res.Captured[0].ID) {
 		t.Errorf("the stub branch is not on origin:\n%s", out)
 	}
 }
