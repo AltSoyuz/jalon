@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A probe argument may carry parentheses or a dollar: probes run with exec
+  and no shell, so nothing composes; only `|&;<>` and backticks are still
+  refused, as lines that would measure nothing. The first live review lost
+  `routes/(app)/start` to that refusal and refuted a premise on directory
+  names; the facts skill now asks for a content grep before the probe list.
+
 - `jalon review` runs the probes itself: the gathering phase has read tools
   and no shell, prints the commands worth running, and jalon executes the ones
   on `probes.allowed` with no shell and writes `facts.md` from their real

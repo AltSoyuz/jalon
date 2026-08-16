@@ -861,3 +861,31 @@ func TestSetStatus(t *testing.T) {
 		t.Error("a file without front matter must be refused, not rewritten")
 	}
 }
+
+// A path with parentheses is an ordinary probe argument: jalon runs probes
+// with exec and no shell, so nothing can compose. The first live review lost
+// the file it needed to a refused `routes/(app)/start`.
+func TestProbesWithParenthesesRun(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", claudeWith("curl -s http://localhost:8080/healthz\ngit log --oneline -1 -- routes/(app)/start/+page.svelte\ngit log a | wc -l\n"))
+	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
+	root := newReviewRepo(t, strings.Replace(reviewTOML, "  \"jalon digest\",\n", "  \"jalon digest\",\n  \"git log\",\n", 1))
+
+	var out, errb strings.Builder
+	res, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{TaskID: reviewTaskID, KeepWorktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "facts.md"))
+	if !strings.Contains(string(b), "$ git log --oneline -1 -- routes/(app)/start/+page.svelte\n") {
+		t.Errorf("the parenthesised path was not run:\n%s", b)
+	}
+	if !strings.Contains(errb.String(), "probe refused: git log a | wc -l") {
+		t.Errorf("the piped line was not refused:\n%s", errb.String())
+	}
+	if !strings.Contains(errb.String(), "2 probe(s) run, 1 refused") {
+		t.Errorf("counts:\n%s", errb.String())
+	}
+}
