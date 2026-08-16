@@ -155,7 +155,7 @@ func cmdRecap(args []string, stdout, stderr io.Writer, m *metric) error {
 		return err
 	}
 	if fs.NArg() == 0 {
-		return errors.New("recap: usage: jalon recap [-days N] [-metrics FILE] [-notify CMD] <repository root>...")
+		return errors.New("recap: usage: jalon recap [-days N] [-metrics FILE] [-notify CMD] <one or more repository roots>")
 	}
 	ctx, stop := signalCtx()
 	defer stop()
