@@ -23,6 +23,16 @@ test it directly:
 - The task assumes a component behaves a certain way. Make it behave.
 - The task may already be done, or may describe something that never shipped.
 
+## A negative finding is a claim too
+
+"There is no such screen", "nothing handles this", "the feature does not
+exist" are the easiest premises to get wrong, because they rest on where you
+looked. Before you accept one, from the facts or from your own reading, run a
+content search (`Grep` for the words of the premise across the tree, not a
+listing of directory names) and cite what it returned. The facts document
+ends with jalon's own content grep of the title's words; read it first. A
+route named `recordings` is not the recording feature.
+
 ## The output
 
 One of exactly two things.

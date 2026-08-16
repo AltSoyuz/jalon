@@ -119,6 +119,11 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 		return keep(fmt.Errorf("review: %w", err))
 	}
 	facts, ran, refused := runProbes(ctx, cfg, wt.path, id, planRes.out)
+	// jalon's own grounding, before anything a model chose: where the words
+	// of the premise appear in the tree. Deterministic and cheap, and it is
+	// what the first live review lacked when it refuted a premise on
+	// directory names while the feature sat in a file it never opened.
+	facts += premiseGrep(ctx, wt.path, task)
 	factsPath := filepath.Join(wt.path, reviewDir, "facts.md")
 	if werr := os.WriteFile(factsPath, []byte(facts), 0o644); werr != nil {
 		return keep(fmt.Errorf("review: %w", werr))
@@ -349,6 +354,61 @@ func runProbes(ctx context.Context, cfg *Config, dir, id, plan string) (string, 
 		doc.WriteString("\n")
 	}
 	return doc.String(), ran, refused
+}
+
+// premiseGrep lists, per significant word of the task's title, the files
+// whose content carries it. A route named recordings is not the recording
+// feature; the code that records may live under start, and a content search
+// is how a phase finds that out. Capped and visible: every cap says so.
+func premiseGrep(ctx context.Context, dir, task string) string {
+	title := ""
+	for line := range strings.SplitSeq(task, "\n") {
+		if t, ok := strings.CutPrefix(line, "# "); ok {
+			title = t
+			break
+		}
+	}
+	var words []string
+	seen := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(title), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		if len(w) < 4 || stopWords[w] || seen[w] {
+			continue
+		}
+		seen[w] = true
+		words = append(words, w)
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Where the premise's words appear\n\nRun by jalon, `git grep -il` on file contents for each word of the task's title, up to 15 files per word.\n\n")
+	for _, w := range words {
+		out, err := git(ctx, dir, "grep", "-il", "-e", w, "--", ".", ":!.tasks", ":!*.lock", ":!*-lock.json", ":!*.svg")
+		if err != nil || strings.TrimSpace(out) == "" {
+			fmt.Fprintf(&b, "- %s: no file\n", w)
+			continue
+		}
+		files := strings.Split(strings.TrimSpace(out), "\n")
+		if len(files) > 15 {
+			fmt.Fprintf(&b, "- %s: %d files, first 15: %s\n", w, len(files), strings.Join(files[:15], ", "))
+		} else {
+			fmt.Fprintf(&b, "- %s: %s\n", w, strings.Join(files, ", "))
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// stopWords are the title words that name nothing in a tree.
+var stopWords = map[string]bool{
+	"that": true, "this": true, "with": true, "into": true, "from": true, "when": true, "like": true,
+	"screen": true, "button": true, "page": true, "make": true, "have": true, "should": true, "would": true,
+	"about": true, "after": true, "before": true, "there": true, "their": true, "which": true, "where": true,
+	"then": true, "than": true, "over": true, "under": true, "right": true, "left": true, "some": true, "more": true,
+	"less": true, "very": true, "just": true, "only": true, "also": true, "does": true, "each": true, "every": true,
+	"task": true, "issue": true, "feature": true, "user": true, "users": true, "add": true, "adds": true,
 }
 
 // composeMeta is what would chain a second command if a shell were involved.

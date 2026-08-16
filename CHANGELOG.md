@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `facts.md` ends with jalon's own content grep of the title's words, and the
+  skeptic is told that a negative finding ("no such screen") is a claim to
+  check by a content search before accepting it.
 - A probe argument may carry parentheses or a dollar: probes run with exec
   and no shell, so nothing composes; only `|&;<>` and backticks are still
   refused, as lines that would measure nothing. The first live review lost

@@ -157,6 +157,11 @@ the facts facts.
    `facts.md` from the real output: the command as asked, what it printed, the
    exit status when it failed. No block in that document was written by a
    model, so a fabricated one is impossible rather than caught.
+   jalon then appends its own grounding to `facts.md`: for each significant
+   word of the task's title, the files whose content carries it (`git grep
+   -il`, capped and said). Deterministic and free, and it is what the first
+   live review lacked when it refuted a premise on directory names while the
+   feature sat in a file it never opened.
 5. **The gate.** At least one probe ran, counted by jalon. It is the whole gate.
    Writing before measuring is impossible by construction. Refused lines (not on
    the list, composed, or naming a program the machine lacks) are named in the
