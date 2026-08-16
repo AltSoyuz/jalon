@@ -68,7 +68,9 @@ func TestWeeklyRecapScript(t *testing.T) {
 
 	metrics := filepath.Join(t.TempDir(), "m.jsonl")
 	if err := os.WriteFile(metrics, []byte(`{"time":"2099-01-01T00:00:00Z","verb":"work","id":"a","cost_usd":1.5}`+"\n"+
-		`{"time":"2099-01-01T00:00:00Z","verb":"review","id":"b","err":"boom"}`+"\n"), 0o644); err != nil {
+		`{"time":"2099-01-01T00:00:00Z","verb":"review","id":"b","err":"boom"}`+"\n"+
+		// A tick that found nothing queued: no id, and not a job.
+		`{"time":"2099-01-01T00:00:00Z","verb":"work","ms":3}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	notified := filepath.Join(t.TempDir(), "notified.md")
