@@ -351,10 +351,15 @@ func runProbes(ctx context.Context, cfg *Config, dir, id, plan string) (string, 
 	return doc.String(), ran, refused
 }
 
-// composeMeta is what turns one command into two. Quotes are absent on purpose:
-// they group arguments, they do not chain commands, and flagging them would
-// catch an honest `git log --grep "fix"`.
-const composeMeta = "|&;<>()$`\n"
+// composeMeta is what would chain a second command if a shell were involved.
+// jalon runs a probe with exec and no shell, so nothing here can compose;
+// these are still refused because a line like `git log a | wc -l` handed to
+// git as literal arguments measures nothing and reads as if it had. Not in
+// the list: parentheses and dollars, which are ordinary bytes in a path
+// (`routes/(app)/start`) or a curl format (`-w %{time_total}`), and quotes,
+// which group arguments. The first live review lost the file it needed to a
+// refused `(app)`.
+const composeMeta = "|&;<>`\n"
 
 // takeJobSlot enforces the daily cap with a plain text counter: one line, one
 // integer, readable with cat. That is the point of it. The date is stored beside

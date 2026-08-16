@@ -44,6 +44,19 @@ Refused:
     $ curl -s http://localhost:8080/healthz
     Then I would check the logs.
 
+Arguments are split on spaces and passed as they are, with no shell: a path
+with parentheses (`routes/(app)/start/+page.svelte`) or a `%{time_total}` is
+fine, a quoted argument with a space inside is not.
+
+## Search contents, not names
+
+A route directory named `recordings` is not the recording feature; the code
+that records may live under `start`. Before you print a probe list, `Grep`
+the tree for the words of the premise (`startRecording`, `record`, the French
+if the UI is French) in file contents, and let what you find choose the
+files your probes look at. A premise refuted on directory names is a premise
+that was not measured.
+
 ## Choose measurements, not confirmations
 
 Most task stubs assert something that was never checked: a thing is slow, a
