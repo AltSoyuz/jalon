@@ -889,3 +889,44 @@ func TestProbesWithParenthesesRun(t *testing.T) {
 		t.Errorf("counts:\n%s", errb.String())
 	}
 }
+
+// jalon grounds every review itself: where the words of the premise appear
+// in file contents, before anything a model chose to look at.
+func TestFactsCarryThePremiseGrep(t *testing.T) {
+	s := newStubs(t)
+	s.add(t, "claude", happyClaude)
+	s.add(t, "gh", happyGH)
+	s.add(t, "curl", happyCurl)
+	root := newRepo(t, reviewTOML)
+	mustWrite(t, filepath.Join(root, "routes", "(app)", "start", "+page.svelte"), "<script>engine.startRecording()</script>\n")
+	mustWrite(t, filepath.Join(root, "routes", "(app)", "recordings", "+page.svelte"), "<h1>Past sessions</h1>\n")
+	mustWrite(t, filepath.Join(root, ".tasks", reviewTaskID+".md"),
+		"---\nstatus: measure\ncreated: 2026-08-13\nlinks: []\n---\n\n# On the record screen, a button that loops the recording\n\n## Context\n\nx\n\n## Decisions\n\n## Log\n")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "fixture")
+	mustGit(t, root, "push", "-q", "origin", "main")
+
+	var out, errb strings.Builder
+	res, err := Review(context.Background(), Env{Root: root, Stdout: &out, Stderr: &errb},
+		ReviewOptions{TaskID: reviewTaskID, KeepWorktree: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(root, res.Worktree, reviewDir, "facts.md"))
+	facts := string(b)
+	if !strings.Contains(facts, "## Where the premise's words appear") {
+		t.Fatalf("no premise grep in the facts:\n%s", facts)
+	}
+	// "record" is in the title; the file that records is under start, and the
+	// grep says so, on content and not on names.
+	if !strings.Contains(facts, "- record: routes/(app)/start/+page.svelte") {
+		t.Errorf("the content grep did not find where the premise lives:\n%s", facts)
+	}
+	if !strings.Contains(facts, "- loops: no file") {
+		t.Errorf("a word absent from the tree must say so:\n%s", facts)
+	}
+	// The skeptic reads it: the facts are on its stdin.
+	if calls := s.models(t); !strings.Contains(calls[1], "Where the premise's words appear") {
+		t.Errorf("the skeptic was not given the grep")
+	}
+}
