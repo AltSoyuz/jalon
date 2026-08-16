@@ -18,7 +18,7 @@ command = "make check"
 # One command, the message on stdin. The ntfy server and the token come from
 # the machine's environment file (the unit's EnvironmentFile), never from this
 # versioned file; the topic is the only thing named here.
-command = 'curl -fsS -H "Authorization: Bearer $NTFY_TOKEN" -H "Title: jalon" -d @- "$NTFY_URL/jalon"'
+command = 'curl -fsS -H "Authorization: Bearer $NTFY_TOKEN" -H "Title: jalon" --data-binary @- "$NTFY_URL/jalon"'
 
 [probes]
 # The only commands a phase may run. Prefix match, no shell characters. The

@@ -126,7 +126,7 @@ waits on a person, and the two numbers above. No model: it runs `jalon list`,
 
 ```sh
 jalon recap -days 7 -metrics ~/jalon-metrics.jsonl \
-  -notify 'curl -s -d @- https://ntfy.example/topic' \
+  -notify 'curl -s --data-binary @- https://ntfy.example/topic' \
   ~/target-one ~/target-two
 ```
 
