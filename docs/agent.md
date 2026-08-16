@@ -4,7 +4,7 @@ jalon's core holds no model and calls none. This layer does, and it is a
 separate package for exactly that reason: `agent/` is opt in, and the task
 manager works with no agent, no network and no key.
 
-Removing it is `rm -rf agent agent_cmd.go`, dropping two cases from the switch
+Removing it is `rm -rf agent agent_cmd.go`, dropping five cases from the switch
 in `main.go`. `TestCoreDoesNotImportAgent` is what keeps that true.
 
 ## What it is for

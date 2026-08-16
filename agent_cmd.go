@@ -141,6 +141,28 @@ func cmdWork(args []string, stdout, stderr io.Writer, m *metric) error {
 	return err
 }
 
+// cmdRecap prints the weekly read of what waits on a person, over several
+// repositories on this machine, and hands it to one command if asked.
+func cmdRecap(args []string, stdout, stderr io.Writer, m *metric) error {
+	fs := newFlagSet("recap", stderr)
+	days := fs.Int("days", 7, "the window, in days")
+	metrics := fs.String("metrics", os.Getenv(metricsEnv), "the JALON_METRICS file to read the week's jobs and cost from")
+	notify := fs.String("notify", "", "a command that receives the recap on stdin; absent, stdout only")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkFlagsAfterArgs(fs); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		return errors.New("recap: usage: jalon recap [-days N] [-metrics FILE] [-notify CMD] <repository root>...")
+	}
+	ctx, stop := signalCtx()
+	defer stop()
+	return agent.Recap(ctx, agent.Env{Root: "", Stdout: stdout, Stderr: stderr},
+		agent.RecapOptions{Days: *days, Metrics: *metrics, Notify: *notify, Repos: fs.Args()})
+}
+
 // cmdAgentInit writes the configuration, the systemd unit and the timer to
 // stdout. It installs nothing: the output is meant to be read, then piped to sh
 // or to a file. The privileged half is a marked block a person runs.
