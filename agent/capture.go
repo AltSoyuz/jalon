@@ -17,6 +17,10 @@ import (
 
 // Capture is the phone's way in: one ntfy topic, one line per idea, read at
 // every tick and turned into a task stub in the repository the line names.
+// The same topic carries jalon's own messages back (the acknowledgement, the
+// pull requests, the recap), so the phone reads one thread: what a person
+// writes has no title, what jalon writes always has one, and capture skips
+// every titled message. One topic, one thread, no second place to look.
 // No model chooses the repository: the first word does, because a word the
 // owner already types costs less than a wrong guess found a day later. A
 // line without a known prefix is sent back as a notification and nothing is
@@ -82,7 +86,7 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 	}
 	for _, m := range msgs {
 		text := strings.TrimSpace(m.Message)
-		if text == "" {
+		if text == "" || m.Title != "" {
 			if err := writeCursor(opt.Cursor, m.ID); err != nil {
 				return res, fmt.Errorf("capture: %w", err)
 			}
@@ -97,11 +101,7 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 			res.Unrouted = append(res.Unrouted, text)
 			back := fmt.Sprintf("no repository in: %q\nsend it again as \"<repo>: ...\" (or \"<repo>!: ...\" to skip the review); known: %s", text, strings.Join(names, ", "))
 			fmt.Fprintf(env.Stderr, "jalon: %s\n", strings.ReplaceAll(back, "\n", " "))
-			if opt.Notify != "" {
-				if _, nerr := run(ctx, runOpts{name: "sh", args: []string{"-c", opt.Notify}, stdin: back + "\n", timeout: 60 * time.Second}); nerr != nil {
-					fmt.Fprintf(env.Stderr, "jalon: the notification command failed: %v\n", nerr)
-				}
-			}
+			reply(ctx, env, opt, back)
 			if err := writeCursor(opt.Cursor, m.ID); err != nil {
 				return res, fmt.Errorf("capture: %w", err)
 			}
@@ -119,6 +119,16 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 		}
 		res.Captured = append(res.Captured, c)
 		fmt.Fprintf(env.Stdout, "%s %s %s %s\n", c.Repo, c.ID, c.Status, c.PR)
+		ack := fmt.Sprintf("captured: %s %s (%s)", c.Repo, c.ID, c.Status)
+		if status == StatusImplement {
+			ack += ", no review, built at the next tick"
+		} else {
+			ack += ", measured at the next tick"
+		}
+		if c.PR != "" {
+			ack += "\nthe default branch is protected, merge the stub first: " + c.PR
+		}
+		reply(ctx, env, opt, ack)
 		if err := writeCursor(opt.Cursor, m.ID); err != nil {
 			return res, fmt.Errorf("capture: %w", err)
 		}
@@ -126,10 +136,23 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 	return res, nil
 }
 
+// reply hands one message to the notify command, which posts it back into
+// the thread with a title. A failed reply is reported and never fatal: the
+// stub is already pushed, and losing an acknowledgement is not losing work.
+func reply(ctx context.Context, env Env, opt CaptureOptions, msg string) {
+	if opt.Notify == "" {
+		return
+	}
+	if _, err := run(ctx, runOpts{name: "sh", args: []string{"-c", opt.Notify}, stdin: msg + "\n", timeout: 60 * time.Second}); err != nil {
+		fmt.Fprintf(env.Stderr, "jalon: the notification command failed: %v\n", err)
+	}
+}
+
 type inboxMessage struct {
 	ID      string `json:"id"`
 	Time    int64  `json:"time"`
 	Event   string `json:"event"`
+	Title   string `json:"title"`
 	Message string `json:"message"`
 }
 

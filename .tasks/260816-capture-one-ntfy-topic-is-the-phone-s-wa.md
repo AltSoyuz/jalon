@@ -16,3 +16,4 @@ links: []
 ## Log
 
 - 2026-08-16 altsoyuz: closed.
+- 2026-08-16 altsoyuz: one topic: capture reads the same topic jalon writes to, skips titled messages (jalon's voice), and acknowledges every line in the thread; the phone reads one conversation and the inbox topic is retired

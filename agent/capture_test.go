@@ -36,6 +36,7 @@ func TestCapture(t *testing.T) {
 		if r.URL.Query().Get("since") == "m3" {
 			return // nothing after the last one
 		}
+		fmt.Fprintln(w, `{"id":"m0","time":1786889000,"event":"message","topic":"inbox","title":"jalon","message":"repo: a titled line is jalon talking, never captured"}`)
 		fmt.Fprintln(w, `{"id":"m1","time":1786890000,"event":"message","topic":"inbox","message":"repo: allow guests to rate a run"}`)
 		fmt.Fprintln(w, `{"id":"m2","time":1786890060,"event":"message","topic":"inbox","message":"Repo!: remove the neosync entry"}`)
 		fmt.Fprintln(w, `{"id":"m3","time":1786890120,"event":"message","topic":"inbox","message":"buy milk"}`)
@@ -48,7 +49,7 @@ func TestCapture(t *testing.T) {
 	var out, errb strings.Builder
 	res, err := Capture(context.Background(), Env{Stdout: &out, Stderr: &errb}, CaptureOptions{
 		Inbox: inbox.URL + "/inbox", Token: "tk_test", Cursor: cursor,
-		Notify: "while IFS= read -r l; do printf '%s\\n' \"$l\"; done > " + notified,
+		Notify: "while IFS= read -r l; do printf '%s\\n' \"$l\"; done >> " + notified,
 		Repos:  []string{root},
 	})
 	if err != nil {
@@ -77,10 +78,20 @@ func TestCapture(t *testing.T) {
 			t.Errorf("a pull request was opened although main accepted the push: %s", c.PR)
 		}
 	}
-	// The line without a home came back, and was not invented into a task.
+	// Every line got an answer in the thread: two acknowledgements, one
+	// refusal; and the titled line, jalon's own voice, was skipped.
 	b, _ := os.ReadFile(notified)
-	if !strings.Contains(string(b), `no repository in: "buy milk"`) || !strings.Contains(string(b), "known: repo") {
-		t.Errorf("the unrouted line was not sent back: %q", b)
+	for _, want := range []string{
+		"captured: repo " + res.Captured[0].ID + " (measure), measured at the next tick",
+		"captured: repo " + res.Captured[1].ID + " (implement), no review, built at the next tick",
+		`no repository in: "buy milk"`, "known: repo",
+	} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("the thread lacks %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "titled line") {
+		t.Errorf("a titled message was captured:\n%s", b)
 	}
 	if n := len(strings.Fields(gitOut(t, root, "ls-tree", "--name-only", "origin/main", ".tasks/"))); n != 3 {
 		t.Errorf("origin holds %d files under .tasks, want the two stubs and .gitkeep", n)
