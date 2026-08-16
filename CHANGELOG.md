@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The `jalon-work` skill carries how to build, not only what: the lens jalon
+  itself is built with (smallest composition, nothing hypothetical, boring
+  over clever, measure, explicit failures, reversible, compatible), applied
+  by every `work` job on every target.
 - `jalon recap <repo>...`: the Sunday read, per target and machine wide, of
   what waits on a person (stale doing tasks, proposals nobody queued, waiting
   pull requests, wrecks, decisions whose linked files moved) and what the
