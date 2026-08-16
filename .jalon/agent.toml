@@ -2,7 +2,7 @@
 model_triage           = "claude-haiku-4-5"
 model_review           = "claude-sonnet-5"
 model_work             = "claude-sonnet-5"
-max_budget_usd_per_job = 3.0
+max_budget_usd_per_job = 2.0
 daily_job_cap          = 5
 counter_file           = ".jalon/agent-jobs-today"
 timeout_seconds        = 900
