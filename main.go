@@ -46,6 +46,8 @@ jalon that calls a model (see docs/agent.md):
                        (-next takes the oldest task with status "measure")
   work <id>            implement an agreed task, behind the repository criterion
                        (-next takes the oldest task with status "implement")
+  recap <repo>...      the weekly read: what waits on a person, per repository,
+                       and what the agent cost on this machine
   agent-init           print the config, unit and timer for a machine; installs
                        nothing, read it before you run it
 
@@ -96,6 +98,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		err = cmdReview(rest, stdout, stderr, m)
 	case "work":
 		err = cmdWork(rest, stdout, stderr, m)
+	case "recap":
+		err = cmdRecap(rest, stdout, stderr, m)
 	case "agent-init":
 		err = cmdAgentInit(rest, stdout, stderr, m)
 	case "version", "-version", "--version":

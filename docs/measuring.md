@@ -91,8 +91,8 @@ for pr in $(gh pr list --state merged --limit 200 --json number,headRefName,merg
 done | awk '{n++; if ($2 == 1) u++} END {printf "%d merged, %d untouched\n", n, u}'
 ```
 
-`scripts/weekly-recap.sh` prints the same number every week, per target, with
-everything else that waits on a person; see below.
+`jalon recap` prints the same number every week, per target, with everything
+else that waits on a person; see below.
 
 `untouched` at 12 or above out of 20 is the bar. A closed-without-merge pull
 request does not appear here; count those by hand with `--state closed`, and
@@ -120,12 +120,12 @@ a person merges. Nothing in the binary changes its own rights on a measurement.
 
 ## The weekly recap
 
-`scripts/weekly-recap.sh` is the Sunday evening read: for each target on a
-machine, what waits on a person, and the two numbers above. No model: `jalon
-list`, `jq`, `gh` and `git`, one markdown block on stdout.
+`jalon recap` is the Sunday evening read: for each target on a machine, what
+waits on a person, and the two numbers above. No model: it runs `jalon list`,
+`gh` and `git` and reads the metrics file, one markdown block on stdout.
 
 ```sh
-scripts/weekly-recap.sh -days 7 -metrics ~/jalon-metrics.jsonl \
+jalon recap -days 7 -metrics ~/jalon-metrics.jsonl \
   -notify 'curl -s -d @- https://ntfy.example/topic' \
   ~/target-one ~/target-two
 ```
@@ -135,12 +135,15 @@ Per target: tasks `doing` for more than a fortnight (drift, not count), tasks
 pull requests the agent opened and nobody merged or closed, wrecks in
 `.jalon/failed/`, done tasks whose linked files changed since they closed (the
 ground under a decision moved), and the merged work branches untouched by a
-person. Then, machine wide, the jobs and the dollars of the week.
+person. Then, machine wide, the jobs and the dollars of the week; a tick that
+found nothing queued has no id and is not a job.
 
 `-notify` is one command receiving the recap on stdin, the same idea as
 `[notify]` in `agent.toml`; absent, the recap goes to stdout and the journal
-has it. Nothing here proposes anything: what to do next comes out of what
-moved and what waits, read by a person.
+has it. The recap spans whatever repositories you name, private ones
+included, so it is never posted anywhere by default. Nothing here proposes
+anything: what to do next comes out of what moved and what waits, read by a
+person.
 
 A unit and a timer for it, beside the hourly ones:
 
@@ -153,7 +156,7 @@ Type=oneshot
 User=jalon-agent
 Environment=PATH=/home/jalon-agent/jalon/bin:/home/jalon-agent/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/jalon-agent
-ExecStart=/bin/sh /home/jalon-agent/jalon/scripts/weekly-recap.sh -metrics /home/jalon-agent/jalon-metrics.jsonl /home/jalon-agent/target-one /home/jalon-agent/target-two
+ExecStart=/home/jalon-agent/jalon/bin/jalon recap -metrics /home/jalon-agent/jalon-metrics.jsonl /home/jalon-agent/target-one /home/jalon-agent/target-two
 
 # /etc/systemd/system/jalon-recap.timer
 [Unit]
