@@ -65,7 +65,7 @@ answers for `altsoyuz.com`. A line without a known prefix is sent back
 through `-notify` and creates nothing, so nothing is silently lost and nothing
 is silently invented. The stub is written in a fresh worktree of the target,
 committed as `[<id>] capture: <line>` and pushed to the default branch; a
-protected branch gets a `task/<id>` branch and a pull request instead. The
+protected branch gets a `capture/<id>` branch and a pull request instead. The
 cursor is one line in a file, the id of the last message handled, so a run
 that fails on a push retries the same line next tick and a burst is bounded
 to twenty lines per tick.
