@@ -48,6 +48,8 @@ jalon that calls a model (see docs/agent.md):
                        (-next takes the oldest task with status "implement")
   recap <repo>...      the weekly read: what waits on a person, per repository,
                        and what the agent cost on this machine
+  capture <repo>...    turn the lines of an ntfy inbox topic into task stubs in
+                       the repositories they name ("compass: idea")
   agent-init           print the config, unit and timer for a machine; installs
                        nothing, read it before you run it
 
@@ -100,6 +102,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		err = cmdWork(rest, stdout, stderr, m)
 	case "recap":
 		err = cmdRecap(rest, stdout, stderr, m)
+	case "capture":
+		err = cmdCapture(rest, stdout, stderr, m)
 	case "agent-init":
 		err = cmdAgentInit(rest, stdout, stderr, m)
 	case "version", "-version", "--version":

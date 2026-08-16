@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `jalon capture <repo>...`: the phone's way in. One ntfy topic, one line per
+  idea (`compass: ...` for a stub to measure, `compass!: ...` to build without
+  review), read at every tick and turned into a task stub pushed to the
+  repository the line names; a line without a known prefix comes back as a
+  notification and creates nothing. No model routes anything.
 - The `jalon-work` skill carries how to build, not only what: the lens jalon
   itself is built with (smallest composition, nothing hypothetical, boring
   over clever, measure, explicit failures, reversible, compatible), applied

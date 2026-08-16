@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/AltSoyuz/jalon/agent"
@@ -161,6 +162,32 @@ func cmdRecap(args []string, stdout, stderr io.Writer, m *metric) error {
 	defer stop()
 	return agent.Recap(ctx, agent.Env{Root: "", Stdout: stdout, Stderr: stderr},
 		agent.RecapOptions{Days: *days, Metrics: *metrics, Notify: *notify, Repos: fs.Args()})
+}
+
+// cmdCapture turns the lines of an ntfy inbox topic into task stubs in the
+// repositories they name.
+func cmdCapture(args []string, stdout, stderr io.Writer, m *metric) error {
+	fs := newFlagSet("capture", stderr)
+	inbox := fs.String("inbox", "", "the ntfy topic URL to read, e.g. https://ntfy.example/inbox")
+	token := fs.String("token", os.Getenv("NTFY_TOKEN"), "bearer token that may read the topic (default $NTFY_TOKEN)")
+	home, _ := os.UserHomeDir()
+	cursor := fs.String("cursor", filepath.Join(home, ".jalon-inbox-cursor"), "file holding the id of the last message handled")
+	notify := fs.String("notify", "", "a command that receives what could not be routed, on stdin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := checkFlagsAfterArgs(fs); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		return errors.New("capture: usage: jalon capture -inbox URL [-cursor FILE] [-notify CMD] <one or more repository roots>")
+	}
+	ctx, stop := signalCtx()
+	defer stop()
+	res, err := agent.Capture(ctx, agent.Env{Stdout: stdout, Stderr: stderr},
+		agent.CaptureOptions{Inbox: *inbox, Token: *token, Cursor: *cursor, Notify: *notify, Repos: fs.Args()})
+	m.Tasks = len(res.Captured)
+	return err
 }
 
 // cmdAgentInit writes the configuration, the systemd unit and the timer to
