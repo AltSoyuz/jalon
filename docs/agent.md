@@ -306,9 +306,18 @@ Three layers, three homes, no overlap:
    with `go:embed`. The skills version *is* the binary version, so one `scp`
    ships the tool and its method together, and they cannot drift.
 2. **Repository knowledge** stays in the target repository (`CLAUDE.md`,
-   `docs/`). jalon never carries or duplicates it; the agent finds it where it
-   works.
+   `AGENTS.md`, `.claude/rules/`, `docs/`). jalon never carries or duplicates
+   it; the agent finds it where it works, because the worktree is a full
+   checkout and Claude Code loads those files from it as in any session.
 3. **Machine configuration** is `.jalon/agent.toml`, above.
+
+The method includes how to build, not only what to measure: `jalon-work`
+carries the lens jalon itself is built with (smallest composition of what
+exists, nothing for a hypothetical future, boring over clever, measure rather
+than guess, explicit failures, reversible and observable, compatibility
+sacred), so a `work` job applies it on every target without each repository
+restating it. What a repository wants on top of that (a review rule for a
+money path, a house style) is repository knowledge and goes in its own files.
 
 The skills are materialized into the ephemeral worktree and die with it.
 Nothing is installed under the agent user's home, because that is
