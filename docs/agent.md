@@ -52,6 +52,11 @@ with `status: measure` and the next tick measures it.
 
 The phone's way in is `jalon capture`: one ntfy topic, one line per idea,
 read at every tick and turned into a stub in the repository the line names.
+The same topic is where jalon talks back, so the phone reads one thread:
+what a person writes has no title, what jalon writes always has one
+(`Title: jalon`), and capture skips every titled message. Under your line
+come the acknowledgement (`captured: compass 260817-... (measure)`), then
+the review's pull request, then the work's, in order.
 
 ```
 compass: let a guest rate a run          -> a stub with status: measure
@@ -75,9 +80,10 @@ jalon capture -inbox https://ntfy.example/inbox -notify '<the same curl>' \
   /home/jalon-agent/target-one /home/jalon-agent/target-two
 ```
 
-`$NTFY_TOKEN` is the bearer that may read the topic. From the phone, the ntfy
-app publishes to the topic directly, and an Apple Shortcut or Siri can post
-one line to it in one gesture.
+`$NTFY_TOKEN` is the bearer that may read and write the topic. From the
+phone, the ntfy web app (added to the home screen) publishes to the topic
+and shows the thread; the native app carries the push; an Apple Shortcut or
+Siri can post one line in one gesture.
 
 **Built today: `jalon doctor`, `jalon review` and `jalon work`.** There is no
 `triage`: queueing a stub is one line a person edits, and a model deciding what
@@ -477,7 +483,7 @@ User=jalon-agent
 EnvironmentFile=/etc/jalon-agent.env
 Environment=PATH=/home/jalon-agent/jalon/bin:/home/jalon-agent/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/home/jalon-agent
-ExecStart=/home/jalon-agent/jalon/bin/jalon capture -inbox ${NTFY_URL}/inbox -notify 'curl -fsS -H "Authorization: Bearer $NTFY_TOKEN" -H "Title: jalon inbox" --data-binary @- "$NTFY_URL/jalon"' /home/jalon-agent/target-one /home/jalon-agent/target-two
+ExecStart=/home/jalon-agent/jalon/bin/jalon capture -inbox ${NTFY_URL}/jalon -notify 'curl -fsS -H "Authorization: Bearer $NTFY_TOKEN" -H "Title: jalon inbox" --data-binary @- "$NTFY_URL/jalon"' /home/jalon-agent/target-one /home/jalon-agent/target-two
 
 # /etc/systemd/system/jalon-capture.timer
 [Unit]
