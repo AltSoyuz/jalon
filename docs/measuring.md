@@ -83,10 +83,16 @@ neither lives in the binary: one comes from the forge, one from this file.
 person had to fix before merging. Over the last twenty merged work branches:
 
 ```sh
-gh pr list --state merged --limit 200 --json number,headRefName,commits,mergedAt \
-  --jq '[.[] | select(.headRefName | startswith("work/"))] | sort_by(.mergedAt) | .[-20:]
-        | {merged: length, untouched: map(select((.commits | length) == 1)) | length}'
+# Two steps: asking for the commits of 200 pull requests in one query exceeds
+# the forge's node limit, so list cheaply, then read the twenty that matter.
+for pr in $(gh pr list --state merged --limit 200 --json number,headRefName,mergedAt \
+             --jq '[.[] | select(.headRefName | startswith("work/"))] | sort_by(.mergedAt) | .[-20:] | .[].number'); do
+  gh pr view "$pr" --json number,commits --jq '"\(.number) \(.commits | length)"'
+done | awk '{n++; if ($2 == 1) u++} END {printf "%d merged, %d untouched\n", n, u}'
 ```
+
+`scripts/weekly-recap.sh` prints the same number every week, per target, with
+everything else that waits on a person; see below.
 
 `untouched` at 12 or above out of 20 is the bar. A closed-without-merge pull
 request does not appear here; count those by hand with `--state closed`, and
@@ -111,6 +117,56 @@ Failed jobs cost money too and merge nothing; the same file has them
 When both numbers hold and you want the agent to do more, jalon proposes and
 never flips: the unlock is a pull request that edits `.jalon/agent.toml`, which
 a person merges. Nothing in the binary changes its own rights on a measurement.
+
+## The weekly recap
+
+`scripts/weekly-recap.sh` is the Sunday evening read: for each target on a
+machine, what waits on a person, and the two numbers above. No model: `jalon
+list`, `jq`, `gh` and `git`, one markdown block on stdout.
+
+```sh
+scripts/weekly-recap.sh -days 7 -metrics ~/jalon-metrics.jsonl \
+  -notify 'curl -s -d @- https://ntfy.example/topic' \
+  ~/target-one ~/target-two
+```
+
+Per target: tasks `doing` for more than a fortnight (drift, not count), tasks
+`proposed` that nobody queued (an agreement waiting silently), what is queued,
+pull requests the agent opened and nobody merged or closed, wrecks in
+`.jalon/failed/`, done tasks whose linked files changed since they closed (the
+ground under a decision moved), and the merged work branches untouched by a
+person. Then, machine wide, the jobs and the dollars of the week.
+
+`-notify` is one command receiving the recap on stdin, the same idea as
+`[notify]` in `agent.toml`; absent, the recap goes to stdout and the journal
+has it. Nothing here proposes anything: what to do next comes out of what
+moved and what waits, read by a person.
+
+A unit and a timer for it, beside the hourly ones:
+
+```ini
+# /etc/systemd/system/jalon-recap.service
+[Unit]
+Description=jalon weekly recap
+[Service]
+Type=oneshot
+User=jalon-agent
+Environment=PATH=/home/jalon-agent/jalon/bin:/home/jalon-agent/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/jalon-agent
+ExecStart=/bin/sh /home/jalon-agent/jalon/scripts/weekly-recap.sh -metrics /home/jalon-agent/jalon-metrics.jsonl /home/jalon-agent/target-one /home/jalon-agent/target-two
+
+# /etc/systemd/system/jalon-recap.timer
+[Unit]
+Description=run the jalon weekly recap on Sunday evening
+[Timer]
+OnCalendar=Sun 18:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+Reverting is `systemctl disable --now jalon-recap.timer && rm
+/etc/systemd/system/jalon-recap.*`.
 
 ## The half that is not automatic
 

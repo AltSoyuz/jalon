@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `scripts/weekly-recap.sh`: the Sunday read, per target and machine wide,
+  of what waits on a person and what the agent cost; no model, `jalon list`,
+  `jq`, `gh` and `git`. `docs/measuring.md` has the unit and timer for it.
 - `docs/measuring.md` reads the two numbers of the `work` kill criterion:
   branches merged without a second commit, from `gh pr list`, and dollars per
   merged branch, from `JALON_METRICS`. Nothing new in the binary.
