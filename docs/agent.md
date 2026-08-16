@@ -4,7 +4,7 @@ jalon's core holds no model and calls none. This layer does, and it is a
 separate package for exactly that reason: `agent/` is opt in, and the task
 manager works with no agent, no network and no key.
 
-Removing it is `rm -rf agent agent_cmd.go`, dropping five cases from the switch
+Removing it is `rm -rf agent agent_cmd.go`, dropping six cases from the switch
 in `main.go`. `TestCoreDoesNotImportAgent` is what keeps that true.
 
 ## What it is for
@@ -49,6 +49,35 @@ cost a whole task, and one id now runs from capture to done.
 A stub is a title and a Context saying what you think, written by hand or by
 `jalon new -issue N`, which seeds it from a forge issue in one call. Push it
 with `status: measure` and the next tick measures it.
+
+The phone's way in is `jalon capture`: one ntfy topic, one line per idea,
+read at every tick and turned into a stub in the repository the line names.
+
+```
+compass: let a guest rate a run          -> a stub with status: measure
+compass!: remove the neosync entry       -> status: implement, no review
+buy milk                                 -> comes back: no repository in it
+```
+
+No model chooses the repository: the first word does, because a word you
+already type costs less than a wrong guess found a day later. `altsoyuz`
+answers for `altsoyuz.com`. A line without a known prefix is sent back
+through `-notify` and creates nothing, so nothing is silently lost and nothing
+is silently invented. The stub is written in a fresh worktree of the target,
+committed as `[<id>] capture: <line>` and pushed to the default branch; a
+protected branch gets a `task/<id>` branch and a pull request instead. The
+cursor is one line in a file, the id of the last message handled, so a run
+that fails on a push retries the same line next tick and a burst is bounded
+to twenty lines per tick.
+
+```sh
+jalon capture -inbox https://ntfy.example/inbox -notify '<the same curl>' \
+  /home/jalon-agent/target-one /home/jalon-agent/target-two
+```
+
+`$NTFY_TOKEN` is the bearer that may read the topic. From the phone, the ntfy
+app publishes to the topic directly, and an Apple Shortcut or Siri can post
+one line to it in one gesture.
 
 **Built today: `jalon doctor`, `jalon review` and `jalon work`.** There is no
 `triage`: queueing a stub is one line a person edits, and a model deciding what
@@ -433,6 +462,32 @@ operating-system-specific line and cross-compiles to nine platforms. It would
 also run fewer than ten times over the life of the tool. Emitting text costs
 sixty lines, is inspectable before it runs, and `diff`s against what is
 deployed.
+
+A second, faster timer (every fifteen minutes is plenty; it is one HTTP poll)
+runs `jalon capture` over every target, so an idea typed at noon is a stub by
+a quarter past and measured at the next hourly tick:
+
+```ini
+# /etc/systemd/system/jalon-capture.service
+[Unit]
+Description=jalon capture: inbox topic to task stubs
+[Service]
+Type=oneshot
+User=jalon-agent
+EnvironmentFile=/etc/jalon-agent.env
+Environment=PATH=/home/jalon-agent/jalon/bin:/home/jalon-agent/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/jalon-agent
+ExecStart=/home/jalon-agent/jalon/bin/jalon capture -inbox ${NTFY_URL}/inbox -notify 'curl -fsS -H "Authorization: Bearer $NTFY_TOKEN" -H "Title: jalon inbox" --data-binary @- "$NTFY_URL/jalon"' /home/jalon-agent/target-one /home/jalon-agent/target-two
+
+# /etc/systemd/system/jalon-capture.timer
+[Unit]
+Description=run jalon capture every fifteen minutes
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
 
 The timer runs `jalon review -next` then `jalon work -next`: the oldest task
 with status `measure`, then the oldest with status `implement`, as origin has
