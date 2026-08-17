@@ -224,7 +224,7 @@ func Review(ctx context.Context, env Env, opt ReviewOptions) (ReviewResult, erro
 	res.PR, _ = createPR(ctx, wt.path, "Task: "+id, body.String())
 
 	fmt.Fprintf(env.Stdout, "%s %s\n", id, res.PR)
-	notify(ctx, env, cfg, fmt.Sprintf("jalon review %s: %s\ncost %s", id, res.PR, formatCost(res.Cost)))
+	notify(ctx, env, cfg, fmt.Sprintf("jalon review %s: %s\ncost %s\nmerge the proposal, then reply to build it:\nbuild %s\nor to close it: drop %s", id, res.PR, formatCost(res.Cost), id, id))
 
 	if opt.KeepWorktree {
 		res.Worktree = wt.rel
