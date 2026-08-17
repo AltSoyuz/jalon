@@ -64,6 +64,20 @@ compass!: remove the neosync entry       -> status: implement, no review
 buy milk                                 -> comes back: no repository in it
 ```
 
+The same thread takes what a person has to say about a task that exists,
+which is the three things a status edit or `jalon append` would do from a
+shell; the id may be a prefix:
+
+```
+compass build 260817-on-the-start                -> status: implement, built at the next tick
+compass decide 260817-on-the-start: <the choice, with its reason>   -> jalon append -decision
+compass drop 260817-on-the-start                 -> jalon close
+```
+
+So agreeing to a proposal is one merge, and ordering the build is one line;
+recording the arbitration the review asked for is one line too, and it lands
+in the task's Decisions before `work` reads it.
+
 No model chooses the repository: the first word does, because a word you
 already type costs less than a wrong guess found a day later. `altsoyuz`
 answers for `altsoyuz.com`. A line without a known prefix is sent back

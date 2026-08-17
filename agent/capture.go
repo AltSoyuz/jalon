@@ -41,12 +41,19 @@ type CaptureResult struct {
 
 type Captured struct {
 	Repo, ID, Status, PR string
+	ack                  string // what the thread is told
 }
 
 // captureLine is "repo: idea" or "repo!: directive": the bang skips the
 // review, for the directives the owner is sure about, as docs/agent.md says
 // a directive does not need one.
 var captureLine = regexp.MustCompile(`^\s*([A-Za-z0-9._-]+)(!?)\s*:\s*(.+?)\s*$`)
+
+// commandLine is what a person has to say about a task that exists, and it
+// is the same three things a status edit or jalon append would do from a
+// shell: "repo build <id>" queues it, "repo decide <id>: <text>" records an
+// arbitration, "repo drop <id>" closes it. The id may be a prefix.
+var commandLine = regexp.MustCompile(`^\s*([A-Za-z0-9._-]+)\s+(build|decide|drop)\s+([0-9]{4}[A-Za-z0-9-]*)\s*(?::\s*(.+?))?\s*$`)
 
 // maxPerTick bounds one run. The cursor moves as messages are handled, so the
 // rest is picked up next tick; a burst cannot turn one tick into a hundred
@@ -87,6 +94,22 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 	for _, m := range msgs {
 		text := strings.TrimSpace(m.Message)
 		if text == "" || m.Title != "" {
+			if err := writeCursor(opt.Cursor, m.ID); err != nil {
+				return res, fmt.Errorf("capture: %w", err)
+			}
+			continue
+		}
+		// A command on an existing task comes first: "repo build <id>" would
+		// otherwise read as an idea titled "build <id>".
+		if cm := commandLine.FindStringSubmatch(text); cm != nil && repos[strings.ToLower(cm[1])] != "" {
+			root := repos[strings.ToLower(cm[1])]
+			c, err := commandOne(ctx, env, root, cm[2], cm[3], cm[4], m)
+			if err != nil {
+				return res, fmt.Errorf("capture: %q into %s: %w", text, filepath.Base(root), err)
+			}
+			res.Captured = append(res.Captured, c)
+			fmt.Fprintf(env.Stdout, "%s %s %s %s\n", c.Repo, c.ID, c.Status, c.PR)
+			reply(ctx, env, opt, c.ack)
 			if err := writeCursor(opt.Cursor, m.ID); err != nil {
 				return res, fmt.Errorf("capture: %w", err)
 			}
@@ -253,30 +276,124 @@ func captureOne(ctx context.Context, env Env, root, text, status string, m inbox
 		return c, err
 	}
 	msg := fmt.Sprintf("[%s] capture: %s\n\nQueued as %s from the inbox.\n", c.ID, text, status)
-	if _, err := git(ctx, wt.path, "add", "--", ".tasks"); err != nil {
+	if err := pushStub(ctx, wt, cfg, c.ID, msg, &c); err != nil {
 		return c, err
+	}
+	return c, nil
+}
+
+// commandOne applies build, decide or drop to one existing task, in a fresh
+// worktree of the target like a capture, and pushes the same way. Nothing
+// here is new: build is the status edit review's own gate asks for, decide is
+// jalon append -decision, drop is jalon close.
+func commandOne(ctx context.Context, env Env, root, verb, ref, text string, m inboxMessage) (Captured, error) {
+	c := Captured{Repo: filepath.Base(root)}
+	cfg, err := Load(root)
+	if err != nil {
+		return c, err
+	}
+	wt, err := newWorktree(ctx, root, cfg, "capture-"+m.ID)
+	if err != nil {
+		return c, err
+	}
+	defer func() {
+		if rerr := wt.remove(ctx); rerr != nil {
+			fmt.Fprintf(env.Stderr, "jalon: %v\n", rerr)
+		}
+	}()
+	names, err := taskNames(wt.path)
+	if err != nil {
+		return c, err
+	}
+	var matches []string
+	for name := range names {
+		if strings.HasPrefix(name, ref) {
+			matches = append(matches, strings.TrimSuffix(name, ".md"))
+		}
+	}
+	switch len(matches) {
+	case 1:
+		c.ID = matches[0]
+	case 0:
+		c.ack = fmt.Sprintf("no task starting with %s in %s; jalon list there to see the ids", ref, c.Repo)
+		return c, nil
+	default:
+		c.ack = fmt.Sprintf("%s is a prefix of %d tasks in %s (%s); use a longer one", ref, len(matches), c.Repo, strings.Join(matches, ", "))
+		return c, nil
+	}
+	tasks := filepath.Join(wt.path, ".tasks")
+	path := filepath.Join(tasks, c.ID+".md")
+	var msg string
+	switch verb {
+	case "build":
+		if err := setStatus(path, StatusImplement); err != nil {
+			return c, err
+		}
+		if _, err := run(ctx, runOpts{dir: wt.path, name: "jalon", timeout: 30 * time.Second,
+			args: []string{"append", "-dir", tasks, c.ID, "queued to build from the inbox"}}); err != nil {
+			return c, err
+		}
+		c.Status = StatusImplement
+		msg = fmt.Sprintf("[%s] queue to build\n\nFrom the inbox.\n", c.ID)
+		c.ack = fmt.Sprintf("build: %s %s queued, built at the next tick", c.Repo, c.ID)
+	case "decide":
+		if strings.TrimSpace(text) == "" {
+			c.ack = fmt.Sprintf("decide needs the decision after a colon: %s decide %s: <the choice, with its reason>", c.Repo, c.ID)
+			return c, nil
+		}
+		if _, err := run(ctx, runOpts{dir: wt.path, name: "jalon", timeout: 30 * time.Second,
+			args: []string{"append", "-dir", tasks, "-decision", c.ID, text}}); err != nil {
+			return c, err
+		}
+		c.Status = "decided"
+		msg = fmt.Sprintf("[%s] decide: %s\n\nFrom the inbox.\n", c.ID, text)
+		c.ack = fmt.Sprintf("decided: %s %s: %s", c.Repo, c.ID, text)
+	case "drop":
+		if _, err := run(ctx, runOpts{dir: wt.path, name: "jalon", timeout: 30 * time.Second,
+			args: []string{"append", "-dir", tasks, c.ID, "dropped from the inbox"}}); err != nil {
+			return c, err
+		}
+		if _, err := run(ctx, runOpts{dir: wt.path, name: "jalon", timeout: 30 * time.Second,
+			args: []string{"close", "-dir", tasks, c.ID}}); err != nil {
+			return c, err
+		}
+		c.Status = "done"
+		msg = fmt.Sprintf("[%s] drop\n\nClosed from the inbox.\n", c.ID)
+		c.ack = fmt.Sprintf("dropped: %s %s closed", c.Repo, c.ID)
+	}
+	if err := pushStub(ctx, wt, cfg, c.ID, msg, &c); err != nil {
+		return c, err
+	}
+	if c.PR != "" {
+		c.ack += "\nthe default branch is protected, merge it first: " + c.PR
+	}
+	return c, nil
+}
+
+// pushStub commits .tasks and pushes to the default branch, or to a
+// capture/<id> branch with a pull request where that branch is protected.
+func pushStub(ctx context.Context, wt *worktree, cfg *Config, id, msg string, c *Captured) error {
+	if _, err := git(ctx, wt.path, "add", "--", ".tasks"); err != nil {
+		return err
 	}
 	if _, err := git(ctx, wt.path, "commit", "-q", "-m", msg); err != nil {
-		return c, err
+		return err
 	}
 	if _, err := git(ctx, wt.path, "push", "-q", "origin", "HEAD:"+cfg.Review.DefaultBranch); err != nil {
-		// Protected: a branch and a pull request, and the message says so.
-		// capture/ and not task/, which review uses for the same id later;
-		// forced, because a retry of the same line lands on the same branch.
-		branch := "capture/" + c.ID
+		branch := "capture/" + id
 		if _, serr := git(ctx, wt.path, "switch", "-q", "-C", branch); serr != nil {
-			return c, serr
+			return serr
 		}
 		if _, berr := git(ctx, wt.path, "push", "-q", "--force", "-u", "origin", branch); berr != nil {
-			return c, fmt.Errorf("cannot push the stub to %s (%v) nor to %s: %w", cfg.Review.DefaultBranch, err, branch, berr)
+			return fmt.Errorf("cannot push to %s (%v) nor to %s: %w", cfg.Review.DefaultBranch, err, branch, berr)
 		}
-		pr, perr := createPR(ctx, wt.path, "Capture: "+c.ID, fmt.Sprintf("Task stub captured from the inbox, queued as `%s`. %s is protected, so this needs a merge; the stub is the whole change.\n", status, cfg.Review.DefaultBranch))
+		pr, perr := createPR(ctx, wt.path, "Capture: "+id, fmt.Sprintf("From the inbox: %s\n\n%s is protected, so this needs a merge; the task file is the whole change.\n", strings.SplitN(msg, "\n", 2)[0], cfg.Review.DefaultBranch))
 		if perr != nil {
-			return c, fmt.Errorf("pushed %s but could not open its pull request: %w", branch, perr)
+			return fmt.Errorf("pushed %s but could not open its pull request: %w", branch, perr)
 		}
 		c.PR = pr
 	}
-	return c, nil
+	return nil
 }
 
 func taskNames(root string) (map[string]bool, error) {
