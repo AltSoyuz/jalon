@@ -108,7 +108,12 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 			if cm[1] == "" {
 				var found []string
 				for _, r := range opt.Repos {
-					if n, _ := taskNames(r); prefixIn(n, cm[3]) {
+					n, err := originTaskNames(ctx, r)
+					if err != nil {
+						fmt.Fprintf(env.Stderr, "jalon: %s: %v\n", filepath.Base(r), err)
+						continue
+					}
+					if prefixIn(n, cm[3]) {
 						found = append(found, r)
 					}
 				}
@@ -424,9 +429,30 @@ func pushStub(ctx context.Context, wt *worktree, cfg *Config, id, msg string, c 
 	return nil
 }
 
-// prefixIn says whether any task name in the local checkout starts with the
-// prefix. The checkout may lag origin by a tick; the command itself then
-// runs on a fresh worktree and resolves again there.
+// originTaskNames lists the task files as origin has them. The local checkout
+// of a target is never updated by design, so a stub captured an hour ago is
+// on origin and nowhere else; the first live "build <id>" answered "no such
+// task" for exactly that reason.
+func originTaskNames(ctx context.Context, root string) (map[string]bool, error) {
+	cfg, err := Load(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := fetchDefault(ctx, root, cfg); err != nil {
+		return nil, err
+	}
+	out, err := git(ctx, root, "ls-tree", "--name-only", "FETCH_HEAD", ".tasks/")
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool)
+	for _, p := range strings.Fields(out) {
+		set[filepath.Base(p)] = true
+	}
+	return set, nil
+}
+
+// prefixIn says whether any task name starts with the prefix.
 func prefixIn(names map[string]bool, prefix string) bool {
 	for n := range names {
 		if strings.HasPrefix(n, prefix) {

@@ -180,6 +180,12 @@ func TestCaptureCommands(t *testing.T) {
 	mustGit(t, root, "add", "-A")
 	mustGit(t, root, "commit", "-q", "-m", "second")
 	mustGit(t, root, "push", "-q", "origin", "main")
+	// The local checkout lags origin, as a target's always does: the tasks are
+	// on origin only, and "build <id>" must still find them.
+	mustGit(t, root, "reset", "-q", "--hard", "HEAD~2")
+	if _, err := os.Stat(filepath.Join(root, ".tasks", reviewTaskID+".md")); err == nil {
+		t.Fatal("fixture: the task must be absent from the local checkout")
+	}
 	notified := filepath.Join(t.TempDir(), "notified.txt")
 
 	var out, errb strings.Builder
