@@ -41,7 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repository the line names; every line is answered in the same topic
   (captured as, or no repository in), which is also where the agent's
   notifications go, so the phone reads one thread; capture skips jalon's own
-  titled messages. No model routes anything.
+  titled messages. Three commands on existing tasks travel the same way:
+  `repo build <id>` queues it, `repo decide <id>: ...` records a decision,
+  `repo drop <id>` closes it; the id may be a prefix. No model routes
+  anything.
 - The `jalon-work` skill carries how to build, not only what: the lens jalon
   itself is built with (smallest composition, nothing hypothetical, boring
   over clever, measure, explicit failures, reversible, compatible), applied

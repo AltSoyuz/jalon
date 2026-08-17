@@ -155,3 +155,68 @@ func TestCaptureOnAProtectedBranchOpensAPullRequest(t *testing.T) {
 		t.Errorf("the stub branch is not on origin:\n%s", out)
 	}
 }
+
+// What a person has to say about a task that exists: build it, record a
+// decision, drop it. Three lines in the thread, three commits on origin, no
+// new task.
+func TestCaptureCommands(t *testing.T) {
+	bin := t.TempDir()
+	if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, "jalon"), "github.com/AltSoyuz/jalon").CombinedOutput(); err != nil {
+		t.Skipf("cannot build jalon for the capture test: %v: %s", err, out)
+	}
+	s := newStubs(t)
+	if err := os.Rename(filepath.Join(bin, "jalon"), filepath.Join(s.dir, "jalon")); err != nil {
+		t.Fatal(err)
+	}
+	inbox := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"id":"c1","time":1786890000,"event":"message","message":"repo decide 260813-health: sessions stay separate, chained back to back; no engine state"}`)
+		fmt.Fprintln(w, `{"id":"c2","time":1786890060,"event":"message","message":"repo build 260813-health"}`)
+		fmt.Fprintln(w, `{"id":"c3","time":1786890120,"event":"message","message":"repo drop 260813-nope"}`)
+		fmt.Fprintln(w, `{"id":"c4","time":1786890180,"event":"message","message":"repo build 2608"}`)
+	}))
+	defer inbox.Close()
+	root := newReviewRepo(t, reviewTOML) // holds 260813-health-endpoint-is-slow, status measure
+	queueTask(t, root, "260813-nope-a-second-task", "todo", "")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "second")
+	mustGit(t, root, "push", "-q", "origin", "main")
+	notified := filepath.Join(t.TempDir(), "notified.txt")
+
+	var out, errb strings.Builder
+	res, err := Capture(context.Background(), Env{Stdout: &out, Stderr: &errb}, CaptureOptions{
+		Inbox: inbox.URL + "/jalon", Cursor: filepath.Join(t.TempDir(), "c"), Repos: []string{root},
+		Notify: "while IFS= read -r l; do printf '%s\\n' \"$l\"; done >> " + notified,
+	})
+	if err != nil {
+		t.Fatalf("capture: %v\n%s", err, errb.String())
+	}
+	if len(res.Captured) != 4 {
+		t.Fatalf("captured %d, want 4 command results", len(res.Captured))
+	}
+	file := gitOut(t, root, "show", "origin/main:.tasks/"+reviewTaskID+".md")
+	if !strings.Contains(file, "\nstatus: implement\n") {
+		t.Errorf("build did not queue the task:\n%s", file)
+	}
+	if !strings.Contains(file, "sessions stay separate, chained back to back") {
+		t.Errorf("decide did not record the decision:\n%s", file)
+	}
+	dropped := gitOut(t, root, "show", "origin/main:.tasks/260813-nope-a-second-task.md")
+	if !strings.Contains(dropped, "\nstatus: done\n") {
+		t.Errorf("drop did not close the task:\n%s", dropped)
+	}
+	// No new task was created for a command line.
+	if n := len(strings.Fields(gitOut(t, root, "ls-tree", "--name-only", "origin/main", ".tasks/"))); n != 3 {
+		t.Errorf("origin holds %d files under .tasks, want the two tasks and .gitkeep", n)
+	}
+	b, _ := os.ReadFile(notified)
+	for _, want := range []string{
+		"decided: repo " + reviewTaskID + ": sessions stay separate",
+		"build: repo " + reviewTaskID + " queued, built at the next tick",
+		"dropped: repo 260813-nope-a-second-task closed",
+		"2608 is a prefix of 2 tasks in repo",
+	} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("the thread lacks %q:\n%s", want, b)
+		}
+	}
+}

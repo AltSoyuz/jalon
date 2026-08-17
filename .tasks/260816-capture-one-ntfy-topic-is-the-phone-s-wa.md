@@ -17,3 +17,4 @@ links: []
 
 - 2026-08-16 altsoyuz: closed.
 - 2026-08-16 altsoyuz: one topic: capture reads the same topic jalon writes to, skips titled messages (jalon's voice), and acknowledges every line in the thread; the phone reads one conversation and the inbox topic is retired
+- 2026-08-17 altsoyuz: build, decide and drop: what a person has to say about a task that exists travels the same thread and lands as a status edit, a decision line or a close, committed and pushed the same way as a stub; the id may be a prefix, ambiguity comes back as a reply
