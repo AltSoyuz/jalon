@@ -69,10 +69,15 @@ which is the three things a status edit or `jalon append` would do from a
 shell; the id may be a prefix:
 
 ```
-compass build 260817-on-the-start                -> status: implement, built at the next tick
-compass decide 260817-on-the-start: <the choice, with its reason>   -> jalon append -decision
-compass drop 260817-on-the-start                 -> jalon close
+build 260817-on-the-start                -> status: implement, built at the next tick
+decide 260817-on-the-start: <the choice, with its reason>   -> jalon append -decision
+drop 260817-on-the-start                 -> jalon close
 ```
+
+The repository may be named first (`compass build ...`); left out, the id is
+looked up across every target, and an id present in two of them comes back
+as a question. The review's own notification ends with the two lines to send
+back, `build <id>` and `drop <id>`, so nothing has to be typed from memory.
 
 So agreeing to a proposal is one merge, and ordering the build is one line;
 recording the arbitration the review asked for is one line too, and it lands

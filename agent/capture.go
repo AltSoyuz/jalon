@@ -53,7 +53,7 @@ var captureLine = regexp.MustCompile(`^\s*([A-Za-z0-9._-]+)(!?)\s*:\s*(.+?)\s*$`
 // is the same three things a status edit or jalon append would do from a
 // shell: "repo build <id>" queues it, "repo decide <id>: <text>" records an
 // arbitration, "repo drop <id>" closes it. The id may be a prefix.
-var commandLine = regexp.MustCompile(`^\s*([A-Za-z0-9._-]+)\s+(build|decide|drop)\s+([0-9]{4}[A-Za-z0-9-]*)\s*(?::\s*(.+?))?\s*$`)
+var commandLine = regexp.MustCompile(`^\s*(?:([A-Za-z0-9._-]+)\s+)?(build|decide|drop)\s+([0-9]{4}[A-Za-z0-9-]*)\s*(?::\s*(.+?))?\s*$`)
 
 // maxPerTick bounds one run. The cursor moves as messages are handled, so the
 // rest is picked up next tick; a burst cannot turn one tick into a hundred
@@ -100,9 +100,37 @@ func Capture(ctx context.Context, env Env, opt CaptureOptions) (CaptureResult, e
 			continue
 		}
 		// A command on an existing task comes first: "repo build <id>" would
-		// otherwise read as an idea titled "build <id>".
-		if cm := commandLine.FindStringSubmatch(text); cm != nil && repos[strings.ToLower(cm[1])] != "" {
+		// otherwise read as an idea titled "build <id>". The repository may be
+		// left out: an id carries its date and is almost always unique across
+		// the targets, and when it is not, the thread says so.
+		if cm := commandLine.FindStringSubmatch(text); cm != nil && (cm[1] == "" || repos[strings.ToLower(cm[1])] != "") {
 			root := repos[strings.ToLower(cm[1])]
+			if cm[1] == "" {
+				var found []string
+				for _, r := range opt.Repos {
+					if n, _ := taskNames(r); prefixIn(n, cm[3]) {
+						found = append(found, r)
+					}
+				}
+				switch len(found) {
+				case 1:
+					root = found[0]
+				case 0:
+					reply(ctx, env, opt, fmt.Sprintf("no task starting with %s in any of: %s", cm[3], strings.Join(names, ", ")))
+				default:
+					var ns []string
+					for _, r := range found {
+						ns = append(ns, filepath.Base(r))
+					}
+					reply(ctx, env, opt, fmt.Sprintf("%s exists in %s; say which: %s %s %s", cm[3], strings.Join(ns, " and "), ns[0], cm[2], cm[3]))
+				}
+				if root == "" {
+					if err := writeCursor(opt.Cursor, m.ID); err != nil {
+						return res, fmt.Errorf("capture: %w", err)
+					}
+					continue
+				}
+			}
 			c, err := commandOne(ctx, env, root, cm[2], cm[3], cm[4], m)
 			if err != nil {
 				return res, fmt.Errorf("capture: %q into %s: %w", text, filepath.Base(root), err)
@@ -394,6 +422,18 @@ func pushStub(ctx context.Context, wt *worktree, cfg *Config, id, msg string, c 
 		c.PR = pr
 	}
 	return nil
+}
+
+// prefixIn says whether any task name in the local checkout starts with the
+// prefix. The checkout may lag origin by a tick; the command itself then
+// runs on a fresh worktree and resolves again there.
+func prefixIn(names map[string]bool, prefix string) bool {
+	for n := range names {
+		if strings.HasPrefix(n, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func taskNames(root string) (map[string]bool, error) {

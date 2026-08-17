@@ -170,7 +170,7 @@ func TestCaptureCommands(t *testing.T) {
 	}
 	inbox := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"id":"c1","time":1786890000,"event":"message","message":"repo decide 260813-health: sessions stay separate, chained back to back; no engine state"}`)
-		fmt.Fprintln(w, `{"id":"c2","time":1786890060,"event":"message","message":"repo build 260813-health"}`)
+		fmt.Fprintln(w, `{"id":"c2","time":1786890060,"event":"message","message":"build 260813-health"}`)
 		fmt.Fprintln(w, `{"id":"c3","time":1786890120,"event":"message","message":"repo drop 260813-nope"}`)
 		fmt.Fprintln(w, `{"id":"c4","time":1786890180,"event":"message","message":"repo build 2608"}`)
 	}))
